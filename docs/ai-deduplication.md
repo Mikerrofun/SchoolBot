@@ -18,6 +18,12 @@
 Модель обязана ответить строгим JSON, что проверяется и схемой zod, и
 параметром `response_format` у OpenRouter.
 
+**Зачем нужен `src/lib/ai.ts`:** единственное место, где проект общается с
+внешним AI. Он изолирует всё, что может сломаться (ключ, сеть, таймаут,
+неожиданный формат ответа), за одной функцией `compareHomework`, которая
+возвращает `null` при любой неудаче — вызывающий код не знает про HTTP,
+промпты и zod, только про `{ same, betterText } | null`.
+
 **`src/lib/ai.ts`:**
 
 ```ts
@@ -113,6 +119,11 @@ export async function compareHomework(
 
 **`src/services/homework.service.ts`** — таблица решений:
 
+**Зачем нужен `src/services/homework.service.ts` (функция `saveHomework`):**
+она превращает вердикт AI в действие над БД. Именно здесь решается:
+создать запись, обновить текст или оставить существующий. Handler получает
+готовый `action` и не знает ни про AI, ни про Prisma-запросы.
+
 ```ts
 const comparison = await compareHomework(existing.text, trimmed);
 
@@ -150,6 +161,11 @@ return {
 
 Пользователь видит результат через словарь сообщений
 (`src/bot/handlers/homework.ts`):
+
+**Зачем нужен `ACTION_LABEL`:** словарь переводит служебный вердикт
+(`created` / `updated` / `kept` / `duplicate_saved`) в человеческое
+сообщение. Тексты ответов собраны в одном месте — их легко поменять, не
+трогая логику сохранения.
 
 ```ts
 const ACTION_LABEL = {
