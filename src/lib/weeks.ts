@@ -48,17 +48,14 @@ export function addDays(date: Date, days: number): Date {
   return d;
 }
 
-/** Monday of the current week. */
 export function currentWeekStart(now: Date = new Date()): Date {
   return startOfWeek(now);
 }
 
-/** Monday of the week shifted by `offset` weeks. */
 export function weekStart(offset: WeekOffset, now: Date = new Date()): Date {
   return addDays(currentWeekStart(now), offset * 7);
 }
 
-/** [monday, sunday] of the week shifted by `offset` weeks. */
 export function weekRange(
   offset: WeekOffset,
   now: Date = new Date()
@@ -67,18 +64,15 @@ export function weekRange(
   return [start, addDays(start, 6)];
 }
 
-/** Monday..Sunday dates of the week shifted by `offset` weeks. */
 export function weekDates(offset: WeekOffset, now: Date = new Date()): Date[] {
   const start = weekStart(offset, now);
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 }
 
-/** Date-only key in UTC, e.g. "2026-09-07". */
 export function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Human-readable date, e.g. "07.09.2026". */
 export function formatDate(date: Date): string {
   return dateKey(date)
     .split("-")
@@ -90,7 +84,6 @@ export function dayKeyFromDate(date: Date): DayKey {
   return DAY_KEYS[(date.getUTCDay() + 6) % 7];
 }
 
-/** Parses "2026-09-07" into a UTC date at midnight. */
 export function parseDateKey(key: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
   const d = new Date(`${key}T00:00:00.000Z`);

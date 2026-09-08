@@ -48,7 +48,7 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     });
   });
 
-  // Week selected -> day list (days that actually have lessons).
+
   bot.callbackQuery(/^(hwv|hwa):w:(-1|0|1)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const [, flow, offsetRaw] = ctx.match!;
