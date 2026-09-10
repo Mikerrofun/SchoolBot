@@ -215,31 +215,28 @@ export async function saveHomework(params: {
     return { action: "kept", text: existing.text, aiUsed: true };
   }
 
-  // Different assignment (or AI unavailable) — replace with the new text
-  // so the lesson always shows the freshest homework.
+  // same=false (different assignment) -> PENDING until an admin approves it.
+  // AI unavailable -> the verdict is unknown, so also PENDING: an unverified
+  // text must never replace the approved one automatically.
   const updated = await prisma.homework.update({
     where: { lessonId },
-    data: { text: trimmed, createdBy },
+    data: { text: trimmed, createdBy, status: "PENDING" },
   });
   return {
-    action: comparison ? "updated" : "duplicate_saved",
+    id: updated.id,
+    action: comparison ? "updated" : "pending_ai_down",
     text: updated.text,
     aiUsed: Boolean(comparison),
+    status: updated.status,
   };
 }
 ```
 
-Пользователь видит результат по `action` — словарь сообщений в
-`src/bot/handlers/homework.ts`:
-
-```ts
-const ACTION_LABEL = {
-  created: "✅ ДЗ записано",
-  updated: "✅ ДЗ обновлено (AI улучшил формулировку)",
-  kept: "ℹ️ Такое ДЗ уже записано — оставил как есть",
-  duplicate_saved: "✅ ДЗ записано",
-} as const;
-```
+Ветка `PENDING` в handler'е (`src/bot/handlers/homework.ts`) сообщает автору
+статус и рассылает админам карточку с кнопками; причина модерации
+(`same_false` — «отличается от прошлой недели» или `ai_down` — «AI-проверка
+недоступна») передаётся в текст уведомления. Полный разбор — в
+[refactoring.md](./refactoring.md), разделы 3.5 и 4.2.
 
 ---
 

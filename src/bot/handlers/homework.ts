@@ -14,6 +14,7 @@ import {
 import {
   HOMEWORK_ADD_PICK_TEXT,
   HOMEWORK_ADD_TITLE_PREFIX,
+  HOMEWORK_PENDING_AI_DOWN_TEXT,
   HOMEWORK_PENDING_SAVED_TEXT,
   HOMEWORK_VIEW_PICK_TEXT,
   HOMEWORK_VIEW_TITLE_PREFIX,
@@ -136,11 +137,13 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     });
 
     if (result.status === "PENDING") {
-      await ctx.reply(HOMEWORK_PENDING_SAVED_TEXT);
+      const aiDown = result.action === "pending_ai_down";
+      await ctx.reply(aiDown ? HOMEWORK_PENDING_AI_DOWN_TEXT : HOMEWORK_PENDING_SAVED_TEXT);
       const date = parseDateKey(pending.dateKey);
       if (date) {
         await notifyAdminsNewHomework(bot, {
           homeworkId: result.id,
+          reason: aiDown ? "ai_down" : "same_false",
           authorId: String(ctx.from?.id ?? ""),
           subject: pending.subject,
           date,

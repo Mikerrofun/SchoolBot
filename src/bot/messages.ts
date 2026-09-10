@@ -7,7 +7,12 @@ import {
   dayKeyFromDate,
   formatDate,
 } from "@/lib/weeks";
-import type { DayHomeworkRow, DayKey, WeekOffset } from "@/types";
+import type {
+  AdminReviewReason,
+  DayHomeworkRow,
+  DayKey,
+  WeekOffset,
+} from "@/types";
 
 // ── Menu ────────────────────────────────────────────────────────────────────
 
@@ -112,10 +117,16 @@ export const HOMEWORK_SAVED_TEXTS = {
   updated: "✅ ДЗ обновлено (AI улучшил формулировку)",
   kept: "ℹ️ Такое ДЗ уже записано — оставил как есть",
   duplicate_saved: "✅ ДЗ записано",
+  // Never shown: the PENDING branch replies with HOMEWORK_PENDING_*_TEXT
+  // before this dictionary is reached; the key exists to keep types total.
+  pending_ai_down: "⏳ ДЗ отправлено на проверку",
 } as const;
 
 export const HOMEWORK_PENDING_SAVED_TEXT =
   "⏳ ДЗ отличается от прошлой недели и отправлено админу на подтверждение.";
+
+export const HOMEWORK_PENDING_AI_DOWN_TEXT =
+  "⚠️ AI-проверка временно недоступна — ДЗ отправлено админу на ручную проверку.";
 
 export function homeworkSavedMessage(
   action: keyof typeof HOMEWORK_SAVED_TEXTS,
@@ -151,14 +162,21 @@ export function additionalInputPrompt(date: Date): string {
 
 // ── Admin approval ──────────────────────────────────────────────────────────
 
+export const REVIEW_REASON_SAME_FALSE = "🆕 Новое ДЗ на подтверждении (отличается от прошлой недели):";
+export const REVIEW_REASON_AI_DOWN =
+  "⚠️ ДЗ на подтверждении (AI-проверка недоступна, проверьте вручную):";
+
 export function adminReviewMessage(params: {
+  reason: AdminReviewReason;
   authorId: string;
   subject: string;
   date: Date;
   text: string;
 }): string {
+  const reason =
+    params.reason === "ai_down" ? REVIEW_REASON_AI_DOWN : REVIEW_REASON_SAME_FALSE;
   return [
-    "🆕 Новое ДЗ на подтверждении:",
+    reason,
     `👤 Автор: ${params.authorId}`,
     `📚 ${params.subject}, ${DAY_LABELS[dayKeyFromDate(params.date)]}, ${formatDate(params.date)}`,
     "",

@@ -74,8 +74,17 @@ export type WeekDayLessons = {
 
 export type SaveHomeworkResult = {
   id: number;
-  action: "created" | "updated" | "kept" | "duplicate_saved";
+  action:
+    | "created"
+    | "updated"
+    | "kept"
+    | "duplicate_saved"
+    /** AI unavailable — verdict unknown, saved as PENDING for manual review. */
+    | "pending_ai_down";
   text: string;
   aiUsed: boolean;
   status: HomeworkStatus;
 };
+
+/** Why a homework submission was sent to admins for approval. */
+export type AdminReviewReason = "same_false" | "ai_down";

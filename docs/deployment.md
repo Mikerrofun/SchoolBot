@@ -30,7 +30,7 @@ ADMIN_TELEGRAM_IDS=
 |---|---|---|
 | `DATABASE_URL` | да | подключение к PostgreSQL для Prisma |
 | `TELEGRAM_BOT_TOKEN` | да | токен бота; без него webhook отвечает 503 |
-| `OPENROUTER_API_KEY` | нет | AI-дедупликация; без неё ДЗ сохраняется без анализа |
+| `OPENROUTER_API_KEY` | нет | AI-дедупликация; без неё обновления существующего ДЗ уходят админам как `PENDING` с пометкой «AI недоступен» |
 | `TELEGRAM_WEBHOOK_SECRET` | да | Telegram шлёт его в `X-Telegram-Bot-Api-Secret-Token`; без совпадения webhook отвечает 401 |
 | `ADMIN_TELEGRAM_IDS` | нет | ID админов через запятую; подтверждают ДЗ при `same=false` |
 

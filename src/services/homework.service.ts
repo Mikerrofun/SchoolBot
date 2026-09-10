@@ -10,8 +10,9 @@ import type {
  * Saves homework for a lesson. If homework already exists, AI decides
  * whether the incoming text is the same assignment (keep or replace with
  * a better wording) or a different one. A different assignment (same=false)
- * is saved as PENDING and needs admin approval; when AI is unavailable the
- * text is saved as APPROVED so the bot keeps working without AI.
+ * is saved as PENDING and needs admin approval. When AI is unavailable the
+ * verdict is unknown, so the submission is also saved as PENDING — an
+ * unverified text is never auto-approved; admins get an "AI down" notice.
  */
 export async function saveHomework(params: {
   lessonId: number;
@@ -62,15 +63,16 @@ export async function saveHomework(params: {
   }
 
   // same=false (different assignment) -> PENDING until an admin approves it.
-  // AI unavailable -> save immediately so the bot keeps working without AI.
-  const status = comparison ? "PENDING" : "APPROVED";
+  // AI unavailable -> the verdict is unknown, so also PENDING: an unverified
+  // text must never replace the approved one automatically. Admins get
+  // notified in both cases, with a different reason mark.
   const updated = await prisma.homework.update({
     where: { lessonId },
-    data: { text: trimmed, createdBy, status },
+    data: { text: trimmed, createdBy, status: "PENDING" },
   });
   return {
     id: updated.id,
-    action: comparison ? "updated" : "duplicate_saved",
+    action: comparison ? "updated" : "pending_ai_down",
     text: updated.text,
     aiUsed: Boolean(comparison),
     status: updated.status,
