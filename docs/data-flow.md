@@ -251,7 +251,7 @@ const ACTION_LABEL = {
 **Зачем нужен `src/bot/handlers/schedule.ts`:** это handler команды
 `/расписание` и её callback-навигации. Он отвечает за текстовое
 представление недели: заголовок с диапазоном дат, дни в порядке Пн→Вс,
-уроки с номерами. Данные не запрашивает сам — берёт из сервиса.
+уроки с ��омерами. Данные не запрашивает сам — берёт из сервиса.
 
 **Подтверждение** — `src/bot/handlers/schedule.ts`:
 
@@ -342,11 +342,31 @@ export async function POST(req: Request) {
     return new Response("Bot is not configured", { status: 503 });
   }
 
-  const handleUpdate = webhookCallback(getBot(), "std/http", {
-    secretToken: process.env.TELEGRAM_WEBHOOK_SECRET,
-  });
+  // Secret-token check: Telegram sends it with every webhook request
+  // (set via `secret_token` in setWebhook). Missing env or header mismatch
+  // is rejected before the update is processed at all.
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const received = req.headers.get("x-telegram-bot-api-secret-token");
+  if (!expected || received !== expected) {
+    return new Response("Unauthorized", { status: 401 });
+  }
 
-  return handleUpdate(req);
+  let update: Update;
+  try {
+    update = (await req.json()) as Update;
+  } catch {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  // Always answer 200 so Telegram does not retry the update endlessly;
+  // handler-level errors are reported to the user from bot.catch.
+  try {
+    await getBot().handleUpdate(update);
+  } catch (error) {
+    console.error("[v0] webhook update failed:", error);
+  }
+
+  return new Response("OK", { status: 200 });
 }
 
 export async function GET() {
@@ -356,71 +376,6 @@ export async function GET() {
 
 `dynamic = "force-dynamic"` отключает любые попытки Next.js закэшировать
 route — каждое обновление Telegram должно обрабатываться живым кодом.
-
----
-
-## Сценарий 5. Еженедельная джоба (Vercel Cron)
-
-**Текстом:** каждое воскресенье в 23:00 Vercel дёргает
-`GET /api/cron/weekly` с заголовком `Authorization: Bearer <CRON_SECRET>`.
-Джоба пересчитывает окно трёх недель от текущей даты и логирует его.
-**Состояние в БД она не меняет** — окно вычисляется на лету при каждом
-запросе, поэтому джоба идемпотентна и её пропуск ничего не ломает.
-
-**Зачем нужен `vercel.json`:** в нём объявлено расписание cron-джобы для
-Vercel. Без этого файла платформа не знает, что и когда дёргать.
-
-**Расписание** — `vercel.json`:
-
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/weekly",
-      "schedule": "0 23 * * 0"
-    }
-  ]
-}
-```
-
-**Зачем нужен `src/app/api/cron/weekly/route.ts`:** это еженедельная джоба.
-Сейчас она пересчитывает и логирует окно трёх недель — точка расширения:
-сюда добавляются еженедельные рассылки и очистки, когда понадобятся.
-Защита — сравнение заголовка `Authorization` с `CRON_SECRET`.
-
-**Подтверждение** — `src/app/api/cron/weekly/route.ts`:
-
-```ts
-export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const now = new Date();
-  const [prevFrom, prevTo] = weekRange(-1, now);
-  const [currFrom, currTo] = weekRange(0, now);
-  const [nextFrom, nextTo] = weekRange(1, now);
-
-  console.log(
-    `[v0] weekly window: prev ${formatDate(prevFrom)}–${formatDate(prevTo)}, ` +
-      `curr ${formatDate(currFrom)}–${formatDate(currTo)}, ` +
-      `next ${formatDate(nextFrom)}–${formatDate(nextTo)}`
-  );
-
-  return Response.json({
-    ok: true,
-    window: {
-      previous: [formatDate(prevFrom), formatDate(prevTo)],
-      current: [formatDate(currFrom), formatDate(currTo)],
-      next: [formatDate(nextFrom), formatDate(nextTo)],
-    },
-  });
-}
-```
-
-Заметьте: `if (secret && ...)` — если `CRON_SECRET` не задан, проверка
-отключается (удобно для локальной проверки), но в проде секрет обязателен.
 
 ---
 

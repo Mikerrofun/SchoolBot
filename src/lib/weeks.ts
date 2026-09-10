@@ -1,7 +1,12 @@
 // Week utilities: the bot always works with three weeks
 // (previous / current / next) computed from concrete dates.
+// The school timezone only decides which calendar day is "today";
+// dates are stored and queried as UTC-midnight calendar dates.
 
-export type WeekOffset = -1 | 0 | 1;
+import type { DayKey, WeekOffset, WeekWindow } from "@/types";
+
+/** School timezone; decides when the current week rolls over. */
+export const SCHOOL_TIMEZONE = process.env.SCHOOL_TIMEZONE ?? "Europe/Moscow";
 
 export const DAY_KEYS = [
   "MONDAY",
@@ -11,9 +16,7 @@ export const DAY_KEYS = [
   "FRIDAY",
   "SATURDAY",
   "SUNDAY",
-] as const;
-
-export type DayKey = (typeof DAY_KEYS)[number];
+] as const satisfies readonly DayKey[];
 
 export const DAY_LABELS: Record<DayKey, string> = {
   MONDAY: "Понедельник",
@@ -30,6 +33,21 @@ export const WEEK_LABELS: Record<WeekOffset, string> = {
   0: "Текущая неделя",
   1: "Следующая неделя",
 };
+
+/** School week is five days, Monday through Friday. */
+export const SCHOOL_WEEK_DAYS = 5;
+
+/** Calendar date (UTC midnight) of "today" in the school timezone. */
+export function todayInSchoolTimezone(now: Date = new Date()): Date {
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SCHOOL_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const [year, month, day] = formatted.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
 
 /** Returns the Monday of the week containing `date` (UTC, time zeroed). */
 export function startOfWeek(date: Date): Date {
@@ -49,24 +67,31 @@ export function addDays(date: Date, days: number): Date {
 }
 
 export function currentWeekStart(now: Date = new Date()): Date {
-  return startOfWeek(now);
+  return startOfWeek(todayInSchoolTimezone(now));
 }
 
 export function weekStart(offset: WeekOffset, now: Date = new Date()): Date {
   return addDays(currentWeekStart(now), offset * 7);
 }
 
-export function weekRange(
+/**
+ * The single source of week boundaries: Monday 00:00 through
+ * Sunday 23:59:59.999 of the week shifted by `offset`.
+ */
+export function getWeekWindow(
   offset: WeekOffset,
   now: Date = new Date()
-): [Date, Date] {
+): WeekWindow {
   const start = weekStart(offset, now);
-  return [start, addDays(start, 6)];
+  const end = addDays(start, 6);
+  end.setUTCHours(23, 59, 59, 999);
+  return { start, end, offset };
 }
 
+/** Mon–Fri dates of the week (Saturday/Sunday are not shown). */
 export function weekDates(offset: WeekOffset, now: Date = new Date()): Date[] {
   const start = weekStart(offset, now);
-  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  return Array.from({ length: SCHOOL_WEEK_DAYS }, (_, i) => addDays(start, i));
 }
 
 export function dateKey(date: Date): string {

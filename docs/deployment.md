@@ -19,11 +19,11 @@ TELEGRAM_BOT_TOKEN=
 # OpenRouter API key (optional — bot works without AI deduplication)
 OPENROUTER_API_KEY=
 
-# Secret for Vercel Cron requests (Authorization: Bearer <CRON_SECRET>)
-CRON_SECRET=
-
 # Secret token Telegram sends with every webhook request
 TELEGRAM_WEBHOOK_SECRET=
+
+# Comma-separated Telegram user IDs of homework approvers
+ADMIN_TELEGRAM_IDS=
 ```
 
 | Переменная | Обязательна | Для чего |
@@ -31,8 +31,8 @@ TELEGRAM_WEBHOOK_SECRET=
 | `DATABASE_URL` | да | подключение к PostgreSQL для Prisma |
 | `TELEGRAM_BOT_TOKEN` | да | токен бота; без него webhook отвечает 503 |
 | `OPENROUTER_API_KEY` | нет | AI-дедупликация; без неё ДЗ сохраняется без анализа |
-| `CRON_SECRET` | рекомендуется | защита `/api/cron/weekly` |
-| `TELEGRAM_WEBHOOK_SECRET` | рекомендуется | Telegram шлёт его в `X-Telegram-Bot-Api-Secret-Token` |
+| `TELEGRAM_WEBHOOK_SECRET` | да | Telegram шлёт его в `X-Telegram-Bot-Api-Secret-Token`; без совпадения webhook отвечает 401 |
+| `ADMIN_TELEGRAM_IDS` | нет | ID админов через запятую; подтверждают ДЗ при `same=false` |
 
 ## Порядок запуска
 
@@ -87,44 +87,18 @@ const response = await fetch(
 ```
 
 - `secret_token` — Telegram начнёт присылать заголовок
-  `X-Telegram-Bot-Api-Secret-Token`, который grammY проверяет автоматически
-  (см. `webhookCallback(..., { secretToken })` в route handler'е).
+  `X-Telegram-Bot-Api-Secret-Token`, который route handler сверяет с
+  `TELEGRAM_WEBHOOK_SECRET` и отвечает 401 при несовпадении.
 - `allowed_updates` ограничен `message` и `callback_query` — бот не получает
   лишние типы событий.
 - URL можно не передавать аргументом: скрипт подставит `VERCEL_URL` или
   `TELEGRAM_WEBHOOK_URL` из окружения.
-
-### 4. Vercel Cron
-
-`vercel.json` уже содержит расписание:
-
-**Зачем нужен `vercel.json`:** декларативная конфигурация платформы —
-расписание cron-джобы. Vercel читает его при деплое и сам создаёт
-еженедельный запуск `GET /api/cron/weekly`.
-
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/weekly",
-      "schedule": "0 23 * * 0"
-    }
-  ]
-}
-```
-
-Vercel сам дёргает `GET /api/cron/weekly` каждое воскресенье в 23:00 UTC с
-заголовком `Authorization: Bearer <CRON_SECRET>`. Джоба пересчитывает окно
-трёх недель и логирует его; состояние БД она не меняет (идемпотентна).
 
 ## Локальная проверка без Telegram
 
 Эндпоинты можно проверять curl'ом:
 
 ```bash
-# cron: вернёт окно трёх недель в JSON
-curl http://localhost:3000/api/cron/weekly
-
 # webhook без токена бота: 503 "Bot is not configured"
 curl -X POST http://localhost:3000/api/telegram/webhook
 ```
@@ -138,8 +112,7 @@ curl -X POST http://localhost:3000/api/telegram/webhook
 ## Безопасность — сводка
 
 - Webhook защищён секретом Telegram (`secret_token` при setWebhook +
-  проверка в `webhookCallback`).
-- Cron защищён `Authorization: Bearer <CRON_SECRET>`.
+  проверка заголовка в route handler'е).
 - Все запросы к БД идут через Prisma с параметризованными запросами
   (SQL-инъекции исключены на уровне ORM).
 - Callback-данные валидируются регулярками и `parseDateKey` — в БД не

@@ -1,27 +1,29 @@
 import type { Bot } from "grammy";
 import type { MyContext } from "../bot";
 import {
-  DAY_LABELS,
-  WEEK_LABELS,
   dayKeyFromDate,
   formatDate,
+  getWeekWindow,
   weekDates,
-  weekRange,
-  type WeekOffset,
 } from "@/lib/weeks";
+import type { WeekOffset } from "@/types";
 import { getLessonsInRange, groupByDay } from "@/services/schedule.service";
 import { weekKeyboard } from "../keyboards";
-
-const WEEK_PICK_TEXT = "📅 Расписание\n\nВыбери неделю:";
+import {
+  SCHEDULE_EMPTY_TEXT,
+  SCHEDULE_PICK_TEXT,
+  dayTitle,
+  scheduleWeekHeader,
+} from "../messages";
 
 export function registerScheduleHandlers(bot: Bot<MyContext>) {
   bot.command("расписание", (ctx) =>
-    ctx.reply(WEEK_PICK_TEXT, { reply_markup: weekKeyboard("sched") })
+    ctx.reply(SCHEDULE_PICK_TEXT, { reply_markup: weekKeyboard("sched") })
   );
 
   bot.callbackQuery("sched:pick", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText(WEEK_PICK_TEXT, {
+    await ctx.editMessageText(SCHEDULE_PICK_TEXT, {
       reply_markup: weekKeyboard("sched"),
     });
   });
@@ -29,13 +31,13 @@ export function registerScheduleHandlers(bot: Bot<MyContext>) {
   bot.callbackQuery(/^sched:w:(-1|0|1)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const offset = Number(ctx.match![1]) as WeekOffset;
-    const [from, to] = weekRange(offset);
-    const lessons = await getLessonsInRange(from, to);
+    const window = getWeekWindow(offset);
+    const lessons = await getLessonsInRange(window.start, window.end);
 
-    const header = `📅 ${WEEK_LABELS[offset]}\n${formatDate(from)} – ${formatDate(to)}`;
+    const header = scheduleWeekHeader(offset, window.start, window.end);
 
     if (lessons.length === 0) {
-      await ctx.editMessageText(`${header}\n\nРасписание пока не заполнено.`, {
+      await ctx.editMessageText(`${header}\n\n${SCHEDULE_EMPTY_TEXT}`, {
         reply_markup: weekKeyboard("sched"),
       });
       return;
@@ -48,7 +50,7 @@ export function registerScheduleHandlers(bot: Bot<MyContext>) {
       const dayLessons = byDay.get(dayKeyFromDate(date));
       if (!dayLessons || dayLessons.length === 0) continue;
 
-      lines.push(`${DAY_LABELS[dayKeyFromDate(date)]} (${formatDate(date)})`);
+      lines.push(`${dayTitle(date)} (${formatDate(date)})`);
       for (const lesson of dayLessons) {
         lines.push(`${lesson.lessonNumber}. ${lesson.subject}`);
       }

@@ -1,26 +1,21 @@
 import { prisma } from "@/lib/prisma";
-import { dayKeyFromDate, type DayKey } from "@/lib/weeks";
-
-export type LessonWithHomework = {
-  id: number;
-  date: Date;
-  day: string;
-  lessonNumber: number;
-  subject: string;
-  homework: { text: string } | null;
-};
+import { dateKey, dayKeyFromDate, weekDates } from "@/lib/weeks";
+import type {
+  DayKey,
+  Lesson,
+  LessonWithHomework,
+  WeekDayLessons,
+  WeekWindow,
+} from "@/types";
 
 /** All lessons (with homework) between two dates, ordered by day and lesson number. */
 export async function getLessonsInRange(
   from: Date,
   to: Date
 ): Promise<LessonWithHomework[]> {
-  const toEnd = new Date(to);
-  toEnd.setUTCHours(23, 59, 59, 999);
-
   return prisma.lesson.findMany({
-    where: { date: { gte: from, lte: toEnd } },
-    include: { homework: { select: { text: true } } },
+    where: { date: { gte: from, lte: to } },
+    include: { homework: { select: { text: true, status: true } } },
     orderBy: [{ date: "asc" }, { lessonNumber: "asc" }],
   });
 }
@@ -37,4 +32,35 @@ export function groupByDay(
     map.set(key, list);
   }
   return map;
+}
+
+/** All five weekdays of a week window with their lessons (possibly empty). */
+export async function getWeekLessons(
+  window: WeekWindow
+): Promise<WeekDayLessons[]> {
+  const lessons = await getLessonsInRange(window.start, window.end);
+  const byDate = new Map<string, Lesson[]>();
+  for (const lesson of lessons) {
+    const key = dateKey(lesson.date);
+    const list = byDate.get(key) ?? [];
+    list.push(lesson);
+    byDate.set(key, list);
+  }
+  return weekDates(window.offset).map((date) => ({
+    date,
+    lessons: byDate.get(dateKey(date)) ?? [],
+  }));
+}
+
+export async function getLessonById(id: number): Promise<Lesson | null> {
+  return prisma.lesson.findUnique({ where: { id } });
+}
+
+export async function getLessonWithHomework(
+  id: number
+): Promise<LessonWithHomework | null> {
+  return prisma.lesson.findUnique({
+    where: { id },
+    include: { homework: { select: { text: true, status: true } } },
+  });
 }

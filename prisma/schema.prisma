@@ -1,6 +1,6 @@
 // Prisma schema for Class Homework Bot.
-// Lessons are tied to concrete dates so the bot can always derive
-// the previous / current / next week without moving data around.
+// Lessons and the "Additional" section are tied to concrete dates so the bot
+// can always derive the previous / current / next week without moving data.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,6 +9,11 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum HomeworkStatus {
+  PENDING
+  APPROVED
 }
 
 model Lesson {
@@ -24,13 +29,25 @@ model Lesson {
 }
 
 model Homework {
-  id        Int      @id @default(autoincrement())
-  lessonId  Int      @unique
-  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  id        Int            @id @default(autoincrement())
+  lessonId  Int            @unique
+  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   text      String
+  status    HomeworkStatus @default(APPROVED)
   createdBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([lessonId])
+}
+
+// Virtual sixth section: one entry per weekday (Mon–Fri), stored by date
+// because its content changes from week to week. Saved without admin approval.
+model AdditionalHomework {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique @db.Date
+  text      String
+  authorId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
