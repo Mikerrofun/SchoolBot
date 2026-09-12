@@ -17,9 +17,16 @@ const SAMPLE_HOMEWORK: Record<string, string> = {
   "Физика": "Задачи 3.4, 3.5 после параграфа 7",
 };
 
+const SAMPLE_ADDITIONAL: Record<string, string> = {
+  MONDAY: "Повторить формулы сокращённого умножения",
+  WEDNESDAY: "Дочитать главу 4 и составить план",
+  FRIDAY: "Подготовиться к контрольной по информатике",
+};
+
 async function main() {
   const monday = currentWeekStart();
 
+  // Every weekday gets all its lesson records, so no day is ever empty.
   for (let i = 0; i < 5; i++) {
     const date = addDays(monday, i);
     const day = dayKeyFromDate(date);
@@ -41,9 +48,18 @@ async function main() {
         });
       }
     }
+
+    const additional = SAMPLE_ADDITIONAL[day];
+    if (additional) {
+      await prisma.additionalHomework.upsert({
+        where: { date },
+        update: { text: additional },
+        create: { date, text: additional, authorId: "seed" },
+      });
+    }
   }
 
-  console.log("Seed complete: current week schedule created.");
+  console.log("Seed complete: current week schedule and samples created.");
 }
 
 main()

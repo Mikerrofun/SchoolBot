@@ -1,14 +1,11 @@
-import { Bot, session, type Context, type SessionFlavor } from "grammy";
+import { Bot, session } from "grammy";
+import { registerAdminHandlers } from "./handlers/admin";
+import { registerAdditionalHandlers } from "./handlers/additional";
 import { registerHomeworkHandlers } from "./handlers/homework";
 import { registerScheduleHandlers } from "./handlers/schedule";
 import { registerStartHandler } from "./handlers/start";
-
-export type SessionData = {
-  /** Lesson the user is currently typing homework for. */
-  pending?: { lessonId: number; subject: string; dateKey: string };
-};
-
-export type MyContext = Context & SessionFlavor<SessionData>;
+import { BOT_ERROR_TEXT } from "./messages";
+import type { MyContext, SessionData } from "../types";
 
 let cachedBot: Bot<MyContext> | null = null;
 
@@ -22,13 +19,22 @@ export function getBot(): Bot<MyContext> {
 
   bot.use(session({ initial: (): SessionData => ({}) }));
 
-  // Commands and callback flows first, free-text homework input last.
+  // Commands and callback flows first, free-text input last.
   registerStartHandler(bot);
   registerScheduleHandlers(bot);
   registerHomeworkHandlers(bot);
+  registerAdditionalHandlers(bot);
+  registerAdminHandlers(bot);
 
-  bot.catch((err) => {
+  bot.catch(async (err) => {
     console.error("[v0] bot error:", err.error);
+    // Tell the user something went wrong; never rethrow — the webhook
+    // route already answers 200 to Telegram.
+    try {
+      await err.ctx.reply(BOT_ERROR_TEXT);
+    } catch {
+      // Sending the error message failed too — nothing else to do.
+    }
   });
 
   cachedBot = bot;

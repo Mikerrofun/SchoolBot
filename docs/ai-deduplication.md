@@ -8,10 +8,12 @@
 
 - **одно и то же задание** → оставить как есть (`kept`) или заменить более
   точной формулировкой (`updated`);
-- **разные задания** → заменить новым текстом (в модели ДЗ 1:1 хранится
-  самое актуальное);
-- **AI недоступен** → новый текст сохраняется без анализа — бот никогда не
-  блокируется недоступностью внешнего сервиса.
+- **разные задания** (`same=false`) → новый текст сохраняется как `PENDING`
+  и уходит админам на подтверждение;
+- **AI недоступен** → вердикт неизвестен, поэтому новый текст тоже
+  сохраняется как `PENDING`, а админы получают уведомление с пометкой
+  «AI-проверка недоступна». Непроверенный текст никогда не публикуется
+  автоматически — бот продолжает работать, но решение принимает человек.
 
 ## Контракт с моделью
 
@@ -129,50 +131,61 @@ const comparison = await compareHomework(existing.text, trimmed);
 
 if (comparison?.same) {
   if (comparison.betterText && comparison.betterText !== existing.text) {
-    // same + есть улучшенная формулировка -> заменить
-    return { action: "updated", text: updated.text, aiUsed: true };
+    // same + есть улучшенная формулировка -> заменить, статус APPROVED
+    return { action: "updated", text: updated.text, aiUsed: true, status: "APPROVED" };
   }
   // same без улучшения -> оставить как есть
-  return { action: "kept", text: existing.text, aiUsed: true };
+  return { action: "kept", text: existing.text, aiUsed: true, status: existing.status };
 }
 
-// Different assignment (or AI unavailable) — replace with the new text
-// so the lesson always shows the freshest homework.
+// same=false (different assignment) -> PENDING until an admin approves it.
+// AI unavailable -> the verdict is unknown, so also PENDING: an unverified
+// text must never replace the approved one automatically.
 const updated = await prisma.homework.update({
   where: { lessonId },
-  data: { text: trimmed, createdBy },
+  data: { text: trimmed, createdBy, status: "PENDING" },
 });
 return {
-  action: comparison ? "updated" : "duplicate_saved",
+  id: updated.id,
+  action: comparison ? "updated" : "pending_ai_down",
   text: updated.text,
   aiUsed: Boolean(comparison),
+  status: updated.status,
 };
 ```
 
 Итоговая матрица:
 
-| Существующее ДЗ | AI | Вердикт | `action` | Что в БД |
-|---|---|---|---|---|
-| нет | — | — | `created` | новый текст |
-| есть | `same=true`, есть `betterText` | то же задание, формулировка лучше | `updated` | `betterText` |
-| есть | `same=true`, без `betterText` | то же задание | `kept` | без изменений |
-| есть | `same=false` | разные задания | `updated` | новый текст |
-| есть | `null` (недоступен) | неизвестно | `duplicate_saved` | новый текст |
+| Существующее ДЗ | AI | Вердикт | `action` | Статус в БД | Уведомление |
+|---|---|---|---|---|---|
+| нет | — | — | `created` | `APPROVED` | — |
+| есть | `same=true`, есть `betterText` | то же задание, формулировка лучше | `updated` | `APPROVED` | — |
+| есть | `same=true`, без `betterText` | то же задание | `kept` | без изменений | — |
+| есть | `same=false` | разные задания | `updated` | `PENDING` | админам: «отличается от прошлой недели» |
+| есть | `null` (недоступен) | неизвестно | `pending_ai_down` | `PENDING` | админам: «AI-проверка недоступна» |
+
+Ветка `PENDING` в `src/bot/handlers/homework.ts` отвечает автору
+(`HOMEWORK_PENDING_SAVED_TEXT` или `HOMEWORK_PENDING_AI_DOWN_TEXT`) и
+рассылает админам карточку с кнопками «Подтвердить»/«Отклонить» — причина
+модерации передаётся типом `AdminReviewReason` (`same_false` | `ai_down`).
 
 Пользователь видит результат через словарь сообщений
-(`src/bot/handlers/homework.ts`):
+(`src/bot/messages.ts`):
 
-**Зачем нужен `ACTION_LABEL`:** словарь переводит служебный вердикт
+**Зачем нужен `HOMEWORK_SAVED_TEXTS`:** словарь переводит служебный вердикт
 (`created` / `updated` / `kept` / `duplicate_saved`) в человеческое
 сообщение. Тексты ответов собраны в одном месте — их легко поменять, не
 трогая логику сохранения.
 
 ```ts
-const ACTION_LABEL = {
+export const HOMEWORK_SAVED_TEXTS = {
   created: "✅ ДЗ записано",
   updated: "✅ ДЗ обновлено (AI улучшил формулировку)",
   kept: "ℹ️ Такое ДЗ уже записано — оставил как есть",
   duplicate_saved: "✅ ДЗ записано",
+  // Never shown: the PENDING branch replies with HOMEWORK_PENDING_*_TEXT
+  // before this dictionary is reached; the key exists to keep types total.
+  pending_ai_down: "⏳ ДЗ отправлено на проверку",
 } as const;
 ```
 

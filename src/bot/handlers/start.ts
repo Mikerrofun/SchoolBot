@@ -1,12 +1,7 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "../bot";
+import type { MyContext } from "@/types";
 import { mainMenuKeyboard } from "../keyboards";
-
-const MENU_TEXT = `👋 Привет! Это бот класса.
-
-Здесь можно посмотреть расписание и домашнее задание на прошлую, текущую и следующую неделю, а также записать новое ДЗ.
-
-Выбери действие:`;
+import { MENU_TEXT } from "../messages";
 
 export function showMainMenu(ctx: MyContext) {
   return ctx.reply(MENU_TEXT, { reply_markup: mainMenuKeyboard() });

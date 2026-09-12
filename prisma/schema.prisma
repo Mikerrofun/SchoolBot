@@ -1,6 +1,6 @@
 // Prisma schema for Class Homework Bot.
-// Lessons are tied to concrete dates so the bot can always derive
-// the previous / current / next week without moving data around.
+// Lessons and the "Additional" section are tied to concrete dates so the bot
+// can always derive the previous / current / next week without moving data.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,6 +9,11 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum HomeworkStatus {
+  PENDING
+  APPROVED
 }
 
 model Lesson {
@@ -23,14 +28,32 @@ model Lesson {
   @@index([date])
 }
 
+// `text` is always the approved, student-visible assignment. A submission
+// that differs from it (or was saved while AI was down) goes to `pendingText`
+// and stays there until an admin approves it (then it replaces `text`) or
+// rejects it (then it is simply cleared and `text` remains).
 model Homework {
-  id        Int      @id @default(autoincrement())
-  lessonId  Int      @unique
-  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  text      String
-  createdBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               Int            @id @default(autoincrement())
+  lessonId         Int            @unique
+  lesson           Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  text             String
+  pendingText      String?
+  pendingCreatedBy String?
+  status           HomeworkStatus @default(APPROVED)
+  createdBy        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([lessonId])
+}
+
+// Virtual sixth section: one entry per weekday (Mon–Fri), stored by date
+// because its content changes from week to week. Saved without admin approval.
+model AdditionalHomework {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique @db.Date
+  text      String
+  authorId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

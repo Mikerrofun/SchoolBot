@@ -56,8 +56,7 @@ export function getBot(): Bot<MyContext> {
 src/
 ├── app/
 │   ├── api/
-│   │   ├── telegram/webhook/route.ts   # приём обновлений Telegram
-│   │   └── cron/weekly/route.ts        # еженедельная джоба (Vercel Cron)
+│   │   └── telegram/webhook/route.ts   # приём обновлений Telegram
 │   ├── layout.tsx / page.tsx           # статусная страница (превью)
 │   └── globals.css
 ├── bot/
@@ -87,10 +86,11 @@ scripts/
 запросы идут по **конкретным датам**, а границы окна считаются от `new Date()`.
 
 **Зачем нужен `src/lib/weeks.ts`:** это «календарь» проекта. Здесь живёт вся
-работа с датами: начало недели (Пн), диапазон недели по смещению (-1/0/1),
-список 7 дат недели, человекочитаемые подписи дней/недель и строгий разбор
-даты из callback-данных. Ни один другой файл не считает даты сам — все берут
-их отсюда, поэтому календарная логика протестирована в одном месте.
+работа с датами: начало недели (Пн), окно недели по смещению (-1/0/1) через
+`getWeekWindow`, список учебных дней (Пн–Пт), человекочитаемые подписи
+дней/недель и строгий разбор даты из callback-данных. Ни один другой файл не
+считает даты сам — все берут их отсюда, поэтому календарная логика
+сосредоточена в одном месте.
 
 **Подтверждение** — `src/lib/weeks.ts`:
 
@@ -100,13 +100,18 @@ export function weekStart(offset: WeekOffset, now: Date = new Date()): Date {
   return addDays(currentWeekStart(now), offset * 7);
 }
 
-/** [monday, sunday] of the week shifted by `offset` weeks. */
-export function weekRange(
+/**
+ * The single source of week boundaries: Monday 00:00 through
+ * Sunday 23:59:59.999 of the week shifted by `offset`.
+ */
+export function getWeekWindow(
   offset: WeekOffset,
   now: Date = new Date()
-): [Date, Date] {
+): WeekWindow {
   const start = weekStart(offset, now);
-  return [start, addDays(start, 6)];
+  const end = addDays(start, 6);
+  end.setUTCHours(23, 59, 59, 999);
+  return { start, end, offset };
 }
 ```
 
