@@ -88,3 +88,13 @@ export type SaveHomeworkResult = {
 
 /** Why a homework submission was sent to admins for approval. */
 export type AdminReviewReason = "same_false" | "ai_down";
+
+
+export type NewHomeworkNotification = {
+  homeworkId: number;
+  reason: AdminReviewReason;
+  authorId: string;
+  subject: string;
+  date: Date;
+  text: string;
+};

@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
 import type { MyContext } from "../bot";
-import type { AdminReviewReason } from "@/types";
+import type { NewHomeworkNotification } from "@/types";
 import { getAdminIds, isAdmin } from "@/lib/admin";
 import { approveHomework, rejectHomework } from "@/services/homework.service";
 import { adminReviewKeyboard } from "../keyboards";
@@ -13,14 +13,7 @@ import {
   adminReviewMessage,
 } from "../messages";
 
-export type NewHomeworkNotification = {
-  homeworkId: number;
-  reason: AdminReviewReason;
-  authorId: string;
-  subject: string;
-  date: Date;
-  text: string;
-};
+
 
 /** Sends the review request (with approve/reject buttons) to every admin. */
 export async function notifyAdminsNewHomework(
