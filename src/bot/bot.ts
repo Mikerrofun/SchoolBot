@@ -1,21 +1,11 @@
-import { Bot, session, type Context, type SessionFlavor } from "grammy";
+import { Bot, session } from "grammy";
 import { registerAdminHandlers } from "./handlers/admin";
 import { registerAdditionalHandlers } from "./handlers/additional";
 import { registerHomeworkHandlers } from "./handlers/homework";
 import { registerScheduleHandlers } from "./handlers/schedule";
 import { registerStartHandler } from "./handlers/start";
 import { BOT_ERROR_TEXT } from "./messages";
-
-export type PendingInput =
-  | { type: "lesson"; lessonId: number; subject: string; dateKey: string }
-  | { type: "additional"; dateKey: string };
-
-export type SessionData = {
-  /** What the user is currently typing free text for. */
-  pending?: PendingInput;
-};
-
-export type MyContext = Context & SessionFlavor<SessionData>;
+import type { MyContext, SessionData } from "../types";
 
 let cachedBot: Bot<MyContext> | null = null;
 

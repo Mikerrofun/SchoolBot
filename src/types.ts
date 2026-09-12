@@ -98,3 +98,20 @@ export type NewHomeworkNotification = {
   date: Date;
   text: string;
 };
+
+// ──────────────────────────────────────────────────────────────────────────
+// Bot context types
+// ──────────────────────────────────────────────────────────────────────────
+
+import type { Context, SessionFlavor } from "grammy";
+
+export type PendingInput =
+  | { type: "lesson"; lessonId: number; subject: string; dateKey: string }
+  | { type: "additional"; dateKey: string };
+
+export type SessionData = {
+  /** What the user is currently typing free text for. */
+  pending?: PendingInput;
+};
+
+export type MyContext = Context & SessionFlavor<SessionData>;
