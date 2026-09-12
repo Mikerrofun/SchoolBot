@@ -15,7 +15,9 @@ export async function getLessonsInRange(
 ): Promise<LessonWithHomework[]> {
   return prisma.lesson.findMany({
     where: { date: { gte: from, lte: to } },
-    include: { homework: { select: { text: true, status: true } } },
+    include: {
+      homework: { select: { text: true, pendingText: true, status: true } },
+    },
     orderBy: [{ date: "asc" }, { lessonNumber: "asc" }],
   });
 }
@@ -61,6 +63,8 @@ export async function getLessonWithHomework(
 ): Promise<LessonWithHomework | null> {
   return prisma.lesson.findUnique({
     where: { id },
-    include: { homework: { select: { text: true, status: true } } },
+    include: {
+      homework: { select: { text: true, pendingText: true, status: true } },
+    },
   });
 }

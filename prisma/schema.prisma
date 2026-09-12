@@ -28,15 +28,21 @@ model Lesson {
   @@index([date])
 }
 
+// `text` is always the approved, student-visible assignment. A submission
+// that differs from it (or was saved while AI was down) goes to `pendingText`
+// and stays there until an admin approves it (then it replaces `text`) or
+// rejects it (then it is simply cleared and `text` remains).
 model Homework {
-  id        Int            @id @default(autoincrement())
-  lessonId  Int            @unique
-  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  text      String
-  status    HomeworkStatus @default(APPROVED)
-  createdBy String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id               Int            @id @default(autoincrement())
+  lessonId         Int            @unique
+  lesson           Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  text             String
+  pendingText      String?
+  pendingCreatedBy String?
+  status           HomeworkStatus @default(APPROVED)
+  createdBy        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([lessonId])
 }

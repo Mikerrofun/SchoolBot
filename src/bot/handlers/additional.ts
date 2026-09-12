@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "../bot";
+import type { MyContext } from "@/types";
 import { getWeekWindow, parseDateKey, weekDates } from "@/lib/weeks";
 import type { WeekOffset } from "@/types";
 import { getAdditionalForWeek, upsertAdditional } from "@/services/additional.service";

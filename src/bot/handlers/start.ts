@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "../bot";
+import type { MyContext } from "@/types";
 import { mainMenuKeyboard } from "../keyboards";
 import { MENU_TEXT } from "../messages";
 

@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "../bot";
+import type { MyContext } from "@/types";
 import type { NewHomeworkNotification } from "@/types";
 import { getAdminIds, isAdmin } from "@/lib/admin";
 import { approveHomework, rejectHomework } from "@/services/homework.service";
@@ -86,6 +86,12 @@ export function registerAdminHandlers(bot: Bot<MyContext>) {
     if (!rejected) return;
 
     await markReviewMessage(ctx, REVIEW_REJECTED_MARK);
-    await notifyAuthor(bot, rejected.createdBy, HOMEWORK_REJECTED_TEXT);
+    // The submitter is `pendingCreatedBy`; `createdBy` still points at the
+    // author of the approved text that was kept.
+    await notifyAuthor(
+      bot,
+      rejected.pendingCreatedBy ?? rejected.createdBy,
+      HOMEWORK_REJECTED_TEXT
+    );
   });
 }

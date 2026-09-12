@@ -35,6 +35,8 @@ export type HomeworkEntry = {
   id: number;
   lessonId: number;
   text: string;
+  pendingText: string | null;
+  pendingCreatedBy: string | null;
   status: HomeworkStatus;
   createdBy: string | null;
   createdAt: Date;
@@ -50,15 +52,28 @@ export type AdditionalEntry = {
   updatedAt: Date;
 };
 
+/** Homework fields shown in views: approved text plus the pending one. */
+export type HomeworkView = {
+  text: string;
+  pendingText: string | null;
+  status: HomeworkStatus;
+};
+
 /** Lesson with its (possibly absent) homework text and moderation status. */
 export type LessonWithHomework = Lesson & {
-  homework: { text: string; status: HomeworkStatus } | null;
+  homework: HomeworkView | null;
 };
 
 /** One row of the "whole day in one message" homework view. */
 export type DayHomeworkRow = {
   lesson: Lesson;
-  homework: { text: string; status: HomeworkStatus } | null;
+  homework: HomeworkView | null;
+};
+
+/** Whole-day homework view: lesson rows plus the day's "Additional" text. */
+export type DayHomework = {
+  rows: DayHomeworkRow[];
+  additional: string | null;
 };
 
 /** Homework joined with its lesson — used for admin approve/reject flows. */
@@ -82,6 +97,8 @@ export type SaveHomeworkResult = {
     /** AI unavailable — verdict unknown, saved as PENDING for manual review. */
     | "pending_ai_down";
   text: string;
+  /** The previously approved text that the submission is waiting against. */
+  oldText: string | null;
   aiUsed: boolean;
   status: HomeworkStatus;
 };
@@ -96,6 +113,8 @@ export type NewHomeworkNotification = {
   authorId: string;
   subject: string;
   date: Date;
+  /** Previously approved text, so the admin can compare. */
+  oldText: string | null;
   text: string;
 };
 

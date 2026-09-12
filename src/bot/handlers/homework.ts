@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "../bot";
+import type { MyContext } from "@/types";
 import { dateKey, getWeekWindow, parseDateKey } from "@/lib/weeks";
 import type { WeekOffset } from "@/types";
 import { isAdmin } from "@/lib/admin";
@@ -74,11 +74,16 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     if (!date) return;
 
     const viewerIsAdmin = isAdmin(ctx.from?.id);
-    const rows = await getDayHomework(date, { includePending: viewerIsAdmin });
-
-    await ctx.editMessageText(dayHomeworkMessage(date, rows, viewerIsAdmin), {
-      reply_markup: backKeyboard("hwv", offset, dayDateKey),
+    const { rows, additional } = await getDayHomework(date, {
+      includePending: viewerIsAdmin,
     });
+
+    await ctx.editMessageText(
+      dayHomeworkMessage(date, rows, additional, viewerIsAdmin),
+      {
+        reply_markup: backKeyboard("hwv", offset, dayDateKey),
+      }
+    );
   });
 
   // Day selected in add flow -> lesson list (editing scenario).
@@ -147,6 +152,7 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
           authorId: String(ctx.from?.id ?? ""),
           subject: pending.subject,
           date,
+          oldText: result.oldText,
           text: result.text,
         });
       }

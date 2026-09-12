@@ -86,23 +86,34 @@ export function dayButtonLabel(date: Date, subjects: string[]): string {
 
 // ── Homework: whole day in one message ──────────────────────────────────────
 
-const PENDING_MARK = "⏳ на подтверждении";
+const PENDING_MARK = "⏳ на подтверждении:";
 
 /** The whole day's homework as a single message; empty lessons show "—". */
 export function dayHomeworkMessage(
   date: Date,
   rows: DayHomeworkRow[],
+  additional: string | null,
   viewerIsAdmin: boolean
 ): string {
   const header = `${DAY_LABELS[dayKeyFromDate(date)]}, ${formatDate(date)}`;
-  if (rows.length === 0) return `${header}\n\n${NO_LESSONS_TEXT}`;
-
   const lines: string[] = [header, ""];
-  for (const { lesson, homework } of rows) {
-    lines.push(`📚 ${lesson.subject}`);
-    lines.push(homework?.text ?? HOMEWORK_EMPTY_TEXT);
-    lines.push("");
+
+  if (rows.length === 0) {
+    lines.push(NO_LESSONS_TEXT, "");
+  } else {
+    for (const { lesson, homework } of rows) {
+      lines.push(`📚 ${lesson.subject}`);
+      lines.push(homework?.text ?? HOMEWORK_EMPTY_TEXT);
+      // Admins additionally see the text waiting for approval, if any.
+      if (viewerIsAdmin && homework?.pendingText) {
+        lines.push(`${PENDING_MARK}`);
+        lines.push(homework.pendingText);
+      }
+      lines.push("");
+    }
   }
+
+  lines.push(`📌 Дополнительно: ${additional ?? HOMEWORK_EMPTY_TEXT}`);
   return lines.join("\n").trimEnd();
 }
 
@@ -162,15 +173,17 @@ export function additionalInputPrompt(date: Date): string {
 
 // ── Admin approval ──────────────────────────────────────────────────────────
 
-export const REVIEW_REASON_SAME_FALSE = "🆕 Новое ДЗ на подтверждении (отличается от прошлой недели):";
+export const REVIEW_REASON_SAME_FALSE =
+  "🆕 Новое ДЗ отличается от прошлого — на подтверждении:";
 export const REVIEW_REASON_AI_DOWN =
-  "⚠️ ДЗ на подтверждении (AI-проверка недоступна, проверьте вручную):";
+  "⚠️ AI-проверка недоступна, проверьте вручную — ДЗ на подтверждении:";
 
 export function adminReviewMessage(params: {
   reason: AdminReviewReason;
   authorId: string;
   subject: string;
   date: Date;
+  oldText: string | null;
   text: string;
 }): string {
   const reason =
@@ -180,9 +193,14 @@ export function adminReviewMessage(params: {
     `👤 Автор: ${params.authorId}`,
     `📚 ${params.subject}, ${DAY_LABELS[dayKeyFromDate(params.date)]}, ${formatDate(params.date)}`,
     "",
+    "Прошлое ДЗ:",
+    params.oldText ?? HOMEWORK_EMPTY_TEXT,
+    "",
+    "Новое ДЗ:",
     params.text,
   ].join("\n");
 }
 
 export const HOMEWORK_APPROVED_TEXT = "✅ Твоё ДЗ подтверждено";
-export const HOMEWORK_REJECTED_TEXT = "❌ Твоё ДЗ отклонено админом";
+export const HOMEWORK_REJECTED_TEXT =
+  "❌ Твоё ДЗ отклонено админом — осталось прежнее ДЗ";
