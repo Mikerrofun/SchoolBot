@@ -37,7 +37,7 @@ export async function compareHomework(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "openai/gpt-4o-mini",
+          model: "meta-llama/llama-3.1-405b-instruct:free",
           temperature: 0,
           response_format: { type: "json_object" },
           messages: [
