@@ -37,7 +37,7 @@ export async function compareHomework(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "meta-llama/llama-3.1-405b-instruct:free",
+          model: "google/gemini-3.6-flash",
           temperature: 0,
           response_format: { type: "json_object" },
           messages: [
