@@ -40,3 +40,17 @@ export function getBot(): Bot<MyContext> {
   cachedBot = bot;
   return bot;
 }
+
+// Инициализация бота для serverless окружения
+let botInitPromise: Promise<void> | null = null;
+
+export async function initBot(): Promise<Bot<MyContext>> {
+  const bot = getBot();
+  
+  if (!botInitPromise) {
+    botInitPromise = bot.init();
+  }
+  
+  await botInitPromise;
+  return bot;
+}

@@ -1,15 +1,8 @@
 import { webhookCallback } from "grammy";
-import { getBot } from "@/bot/bot";
+import { initBot } from "@/bot/bot";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10; // Vercel free tier limit
-
-// Проверка secret token перед обработкой
-async function verifySecretToken(req: Request): Promise<boolean> {
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const received = req.headers.get("x-telegram-bot-api-secret-token");
-  return !!expected && received === expected;
-}
 
 export async function POST(req: Request) {
   if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -17,20 +10,34 @@ export async function POST(req: Request) {
   }
 
   // Проверка secret token
-  if (!(await verifySecretToken(req))) {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const received = req.headers.get("x-telegram-bot-api-secret-token");
+  
+  if (!expected || received !== expected) {
+    console.error("[webhook] Secret token mismatch:", {
+      hasExpected: !!expected,
+      hasReceived: !!received,
+      match: received === expected
+    });
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Используем webhookCallback из grammY для правильной обработки
-  const bot = getBot();
-  const handleWebhook = webhookCallback(bot, "std/http");
-  
   try {
+    // Инициализируем бота
+    const bot = await initBot();
+    
+    // Используем webhookCallback из grammY
+    const handleWebhook = webhookCallback(bot, "std/http");
+    
     return await handleWebhook(req);
   } catch (error) {
     console.error("[webhook] error:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
+}
+
+export async function GET() {
+  return new Response("Telegram webhook endpoint", { status: 200 });
 }
 
 export async function GET() {
