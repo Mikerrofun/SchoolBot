@@ -4,21 +4,57 @@ Telegram-бот класса: расписание и домашние зада�
 
 Стек: Next.js · TypeScript · Prisma · PostgreSQL (Supabase) · grammY · OpenRouter.
 
-## Настройка
+## Быстрый старт
 
-1. **База данных** — создайте PostgreSQL (Supabase) и задайте `DATABASE_URL` в `.env` (шаблон — `.env.example`).
-2. **Миграции и сид**:
+### Локальная разработка
+1. **Клонируйте репозиторий**
    ```bash
-   npx prisma migrate dev --name init
+   git clone <repo-url>
+   cd SchoolBot
+   ```
+
+2. **Установите зависимости**
+   ```bash
+   pnpm install
+   ```
+
+3. **Настройте `.env`**
+   ```bash
+   cp .env.example .env
+   # Заполните: DATABASE_URL, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
+   ```
+
+4. **Инициализируйте БД**
+   ```bash
+   pnpm db:migrate
    pnpm db:seed
    ```
-3. **Telegram** — создайте бота у @BotFather, задайте `TELEGRAM_BOT_TOKEN` и `TELEGRAM_WEBHOOK_SECRET` (любая случайная строка).
-4. **Webhook** — после деплоя:
+
+5. **Запустите dev сервер**
    ```bash
-   pnpm bot:set-webhook https://your-app.vercel.app
+   pnpm dev
    ```
-5. **AI** — ключ с https://openrouter.ai/keys в `OPENROUTER_API_KEY`. Не обязателен: без него бот работает, просто сохраняет ДЗ без дедупликации.
-6. **Админы** — ID через запятую в `ADMIN_TELEGRAM_IDS`; они подтверждают новое ДЗ (при `same=false`).
+
+### Production деплой
+См. подробную инструкцию в **[DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+**Кратко:**
+```bash
+# 1. Задайте переменные окружения на хостинге
+# 2. Деплой (команды сборки):
+pnpm build     # или vercel-build для Vercel
+pnpm start:prod
+
+# 3. Настройте webhook:
+pnpm bot:set-webhook https://your-app.vercel.app
+```
+
+### Переменные окружения
+- `DATABASE_URL` — PostgreSQL (Supabase)
+- `TELEGRAM_BOT_TOKEN` — токен от @BotFather
+- `TELEGRAM_WEBHOOK_SECRET` — любая случайная строка для безопасности
+- `OPENROUTER_API_KEY` — (опционально) для AI дедупликации ДЗ
+- `ADMIN_TELEGRAM_IDS` — ID админов через запятую (одобряют ДЗ)
 
 ## Команды бота
 
