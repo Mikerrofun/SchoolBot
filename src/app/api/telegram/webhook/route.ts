@@ -39,7 +39,3 @@ export async function POST(req: Request) {
 export async function GET() {
   return new Response("Telegram webhook endpoint", { status: 200 });
 }
-
-export async function GET() {
-  return new Response("Telegram webhook endpoint", { status: 200 });
-}
