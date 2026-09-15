@@ -21,6 +21,12 @@ export type WeekWindow = {
   offset: WeekOffset;
 };
 
+/** Week schedule template: subjects per weekday, in lesson order. */
+export type ScheduleTemplate = Record<
+  Exclude<DayKey, "SATURDAY" | "SUNDAY">,
+  string[]
+>;
+
 export type HomeworkStatus = "PENDING" | "APPROVED";
 
 export type Lesson = {
