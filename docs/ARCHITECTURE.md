@@ -3,6 +3,8 @@
 Подробная документация: поток данных, модель навигации, AI-проверка домашнего
 задания, модерация, схема БД и принятые архитектурные решения.
 
+> Хронология изменений и принятых решений — в [`REFACTORING_REPORT.md`](./REFACTORING_REPORT.md).
+
 ---
 
 ## 1. О проекте
@@ -270,7 +272,7 @@ const result = await saveHomework({ lessonId: pending.lessonId, … });
 
 ### 7.2. Сравнение — при перезаписи ДЗ
 
-`compareHomework(existing, incoming)` вызывается из `saveHomework`
+`compareHomework(existing, incoming)` в��зывается из `saveHomework`
 **только когда ДЗ для урока уже существует**. Вердикт определяет судьбу записи:
 
 | Вердикт AI | Действие | Что видит ученик |
