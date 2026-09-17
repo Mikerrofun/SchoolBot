@@ -1,144 +1,129 @@
-# Отчёт о рефакторинге UI бота (ветка `refactoringUI_AI`)
+---
 
-> Документ-отчёт о проделанной работе: исходный план → реализация → правки после
-> тестирования. Как система устроена сейчас — см. [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md).
+**Дата:** 17.09.2026
+**Теги:** #features #refactoring #telegram-bot #ai
 
 ---
 
-## Обзор
+## 1. Зачем
 
-| | |
-|---|---|
-| Ветка | `refactoringUI_AI` |
-| Этап 1 — исходный план | коммит `d72607d` |
-| Этап 2 — правки после тестирования | коммит `e3dd402` |
-| Проверки | `tsc --noEmit` — чисто, `next build` — успешно, smoke-тест вебхука curl'ом |
+Бот SchoolBot (grammY + Prisma + Next.js route handler) накопил проблемы, которые мешали и пользователям, и разработке. Ошибки обработки падали молча или текстами, размазанными по хендлерам. Все типы лежали одним файлом `src/types.ts`. Админ-уведомление о перезаписи ДЗ ссылалось на поле `oldText`, которого у нового ДЗ не существует. Навигация была на inline-кнопках: кнопки возврата терялись, «⬅️ Недели» местами просто ничего не делал, на каждый шаг уходило новое сообщение. Предметы писались целиком («Физическая культура и здоровье»). Текст ДЗ сохранялся без проверки на тему. Авторы в уведомлениях были анонимными telegram-id. Расписание, одинаковое каждую неделю, заставляло проходить два лишних пикера (неделя → день).
 
-Цель этапа 1 — навести порядок в UI-слое бота: единый реестр ошибок, типы по
-файлам, честный контракт `oldText`, навигация на reply-клавиатурах, сокращения
-предметов, AI-цензура вводимого текста, хранение пользователей для авторства.
+## 2. Где/что уже было
 
-Цель этапа 2 — устранить проблемы, найденные при ручном тестировании: сломанный
-возврат «« Недели», лишние пикеры в расписании, инлайн-клавиатура уроков,
-неясная кнопка «✏️ Заполнить».
+Переиспользовано почти всё ядро, нового кода минимум:
 
----
+- grammY-сессия с состоянием флоу (`flow`, `weekOffset`, `pending`) — навигация построена поверх неё, сама сессия не менялась;
+- `saveHomework` в `homework.service.ts` с AI-сравнением через OpenRouter (`compareHomework`) — цензура встроена в тот же процесс, а не рядом с ним;
+- хелперы дат `lib/weeks.ts` (`getWeekWindow`, `weekDates`, `dayKeyFromDate`) — пикеры недель/дней работают на них;
+- пайплайн админ-уведомлений и инлайн-модерация (`hw:approve:` / `hw:reject:`) — не тронуты;
+- константы текстов кнопок в `messages.ts` — роутер навигации матчит именно их, поэтому клавиатуры и роутер не могут разойтись.
 
-## Этап 1 — реализация исходного плана (коммит `d72607d`)
+Задача была не писать новое, а переупаковать существующее: например, из `compareHomework` вынесен общий `callOpenRouterJson`, и цензура получилась 15 строк поверх него.
 
-### Задача 1. Реестр ошибок и формат ответа вебхука
+## 3. Реализация
 
-**Файлы:** `src/lib/errors.ts` (новый), `src/app/api/telegram/webhook/route.ts`, `src/bot/bot.ts`
-
-Все коды ошибок и их тексты собраны в одном месте:
+### Реестр ошибок
 
 ```ts
 // src/lib/errors.ts
-export const ERROR_REGISTRY = {
+export const ERROR_REGISTRY: Record<ErrorCode, string> = {
+  UNKNOWN: "Произошла ошибка, попробуйте позже.",
   BOT_NOT_CONFIGURED: "Бот не настроен: отсутствует токен.",
-  INVALID_SECRET: "Неверный секрет вебхука.",
-  HANDLER_ERROR: "Внутренняя ошибка обработки. Попробуйте позже.",
-  CONTENT_REJECTED: "Текст не по теме школьных заданий...",
-  HOMEWORK_UNCHANGED: "Новое ДЗ совпадает со старым — ничего не изменилось.",
-  ...
-} as const;
-
-export class BotError extends Error { constructor(public code: BotErrorCode) ... }
-export function toBotError(e: unknown): { code: BotErrorCode; message: string }
-```
-
-Вебхук отвечает структурированным JSON на любой исход:
-
-```jsonc
-// успех
-{ "ok": true }
-// ошибка
-{ "ok": false, "error": { "code": "INVALID_SECRET", "message": "Неверный секрет вебхука." } }
-```
-
-- неверный `x-telegram-bot-api-secret-token` → `401` + `INVALID_SECRET`;
-- ошибка внутри обработки → `200` + `HANDLER_ERROR` (Telegram не ретраит апдейт);
-- `bot.catch` отвечает пользователю текстом из реестра вместо технического stack trace.
-
-### Задача 2. Типизация вынесена в `src/types/`
-
-**Файлы:** `src/types/{schedule,homework,additional,user,errors,bot,ai,index}.ts` (новые), удалён `src/types.ts`
-
-Монофайл разбит по доменам; `index.ts` — барель, поэтому все существующие
-импорты `from "@/types"` не изменились. Локальные дубли типов из хендлеров и
-сервисов (`SaveHomeworkParams`, `AdditionalWeekRow`, `NewHomeworkNotification` и
-др.) перенесены в типы и импортируются оттуда.
-
-### Задача 3. Честный контракт `oldText` в сохранении ДЗ
-
-**Файлы:** `src/services/homework.service.ts`, `src/bot/handlers/admin.ts`, `src/types/homework.ts`
-
-Раньше `SaveHomeworkResult.oldText: string | null` — и каждое место использования
-рисковало показать `null`. Теперь это дискриминированное объединение:
-
-```ts
-export type SaveHomeworkResult =
-  | SaveHomeworkCreated    // action: "created" — поля oldText нет вообще
-  | SaveHomeworkReplaced;  // action: "replaced" — oldText: string (обязателен)
-```
-
-TypeScript не даёт обратиться к `oldText` у созданной записи — проверка
-`result.action === "replaced"` становится обязательной. В админ-уведомлении:
-
-- замена → блок «Прошлое ДЗ / Новое ДЗ»;
-- первая запись → «Новое ДЗ (старого текста не было)».
-
-### Задача 4. Навигация переведена на reply-клавиатуры
-
-**Файлы:** `src/bot/keyboards.ts`, `src/bot/handlers/navigation.ts` (новый), все хендлеры, `src/types/bot.ts`
-
-- Меню, недели, дни — `Keyboard` (reply) под полем ввода, `resized()`.
-- Состояние диалога — в сессии: `flow` (текущий сценарий) + `weekOffset`.
-- Новый роутер `handlers/navigation.ts` матчит текст нажатой кнопки по
-  константам из `messages.ts` (`BTN_MENU`, `BTN_WEEKS`, `BTN_DAYS`, …) —
-  рассинхрон «текст в клавиатуре ≠ текст в роутере» невозможен.
-- Любое нажатие навигации сбрасывает `pending`-ввод.
-- Инлайн-клавиатуры остались только у админ-модерации.
-
-### Задача 5. Сокращения предметов
-
-**Файлы:** `src/lib/subjects.ts` (новый)
-
-```ts
-const SHORT_SUBJECTS: Record<string, string> = {
-  "Физическая культура и здоровье": "Физра",
-  "Изобразительное искусство": "ИЗО",
-  // ...
+  UNAUTHORIZED: "Неавторизованный запрос.",
+  AI_UNAVAILABLE: "AI-проверка временно недоступна, попробуйте позже.",
+  CONTENT_REJECTED: "❌ Текст не похож на запись по делу ...",
 };
-export function shortSubject(name: string): string;
-```
 
-Применяется во всех кнопках, списках уроков и админ-уведомлениях.
-
-### Задача 6. AI-цензура вводимого текста
-
-**Файлы:** `src/lib/ai.ts`, `src/bot/handlers/homework.ts`, `src/bot/handlers/additional.ts`
-
-Новая функция `checkTextOnTopic(text)` (общий helper `callOpenRouterJson` для
-обоих AI-вызовов) проверяет текст **до** сохранения — и в ДЗ, и в «Дополнительно»:
-
-```ts
-const verdict = await checkTextOnTopic(text);
-if (verdict === false) {
-  await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED);
-  return; // запись не создаётся
+export class BotError extends Error {
+  readonly code: ErrorCode;
+  constructor(code: ErrorCode, message: string = ERROR_REGISTRY[code]) { ... }
 }
 ```
 
-- `false` (не по теме) → отказ, ничего не сохраняется;
-- `true` → сохраняем (ДЗ — сразу в pending-модерацию);
-- `null` (AI недоступен) → сохраняем как раньше, чтобы бот не блокировал ввод.
+Вебхук сериализует любую ошибку в структурированный JSON:
 
-### Задача 7. Хранение пользователей
+```ts
+// src/app/api/telegram/webhook/route.ts
+catch (error) {
+  // Always HTTP 200: Telegram must not retry and duplicate the update.
+  const botError = toBotError(error);
+  return errorResponse(botError.code); // { ok:false, error:{ code, message } }
+}
+```
 
-**Файлы:** `prisma/schema.prisma`, `prisma/migrations/20260917000000_add_user_model/migration.sql` (новый), `src/services/user.service.ts` (новый), `src/bot/handlers/start.ts`, `src/bot/handlers/admin.ts`
+### Типы
+
+`src/types.ts` разбит на `src/types/{schedule,homework,additional,user,errors,bot,ai}.ts` + барель `index.ts` — импорты `@/types` не изменились. Ключевое: результат сохранения ДЗ стал дискриминированным объединением — у нового ДЗ поля `oldText` нет вообще, у перезаписи оно строго обязательно:
+
+```ts
+// src/types/homework.ts
+export type SaveHomeworkCreated = {
+  action: "created";
+  text: string;
+  aiUsed: false;
+  status: "APPROVED";
+}; // поля oldText нет вообще
+
+export type SaveHomeworkReplaced = {
+  action: Exclude<HomeworkSaveAction, "created">;
+  text: string;
+  oldText: string; // строго обязателен
+  aiUsed: boolean;
+  status: HomeworkStatus;
+};
+
+export type SaveHomeworkResult = SaveHomeworkCreated | SaveHomeworkReplaced;
+```
+
+### Reply-навигация
+
+Меню, недели, дни и уроки — reply-клавиатуры под полем ввода. Один роутер матчит текст сообщения с константами кнопок:
+
+```ts
+// src/bot/handlers/navigation.ts
+if (text === BTN_MENU) return showMainMenu(ctx);
+if (text === BTN_SCHEDULE) return showSchedule(ctx);
+if (text === BTN_WEEKS) return handleWeeksButton(ctx);   // «⬅️ Недели»
+if (text === BTN_DAYS) return handleDaysButton(ctx);     // «⬅️ Дни»
+
+const choice = ctx.session.lessonChoices?.find((c) => c.label === text);
+if (choice) return handleLessonChoice(ctx, choice);
+```
+
+Любое нажатие навигации сначала сбрасывает `pending` — ввод текста нельзя «потерять» в чужом флоу. Соответствие «кнопка → урок» живёт в сессии (`lessonChoices`), поэтому нажатие другого урока переключает цель ввода без потери шага.
+
+### Сокращение предметов
+
+```ts
+// src/lib/subjects.ts
+const SUBJECT_SHORT_NAMES: Record<string, string> = {
+  "Физическая культура и здоровье": "Физра",
+};
+export function shortSubject(subject: string): string {
+  return SUBJECT_SHORT_NAMES[subject] ?? subject;
+}
+```
+
+Применяется только на выводе (кнопки, сообщения, уведомления); в БД и шаблоне расписания — официальные названия.
+
+### Цензура текста
+
+```ts
+// src/lib/ai.ts
+export function checkTextOnTopic(text: string): Promise<boolean | null> {
+  return callOpenRouterJson(ON_TOPIC_SYSTEM_PROMPT, `Текст записи:\n${text}`,
+    onTopicVerdictSchema
+  ).then((verdict) => verdict?.onTopic ?? null);
+}
+```
+
+Вызывается **до** сохранения в обоих флоу (ДЗ и «Дополнительно»). `false` — запись не создаётся, пользователь получает `ERROR_REGISTRY.CONTENT_REJECTED`. `null` (AI недоступен) — сохранение продолжается: ДЗ уходит в pending-модерацию, «Дополнительно» сохраняется как есть.
+
+### Хранилище пользователей
 
 ```prisma
+// prisma/schema.prisma
 model User {
   id           Int      @id @default(autoincrement())
   telegramId   String   @unique
@@ -150,126 +135,103 @@ model User {
 }
 ```
 
-Запись создаётся/обновляется **только** на `/start` (upsert). В админ-уведомлении
-автор теперь человекочитаем: `👤 Автор: Иван @ivanov (id: 123)`; если записи нет —
-просто `id: 123`.
-
-### Задача 8. Проверки
-
-`tsc --noEmit` — чисто; `next build` — успешно; smoke-тест вебхука без токена
-вернул ожидаемый `{"ok":false,"error":{"code":"BOT_NOT_CONFIGURED",...}}`.
-
----
-
-## Этап 2 — правки после ручного тестирования (коммит `e3dd402`)
-
-### Правка 1. Расписание — сразу неделя, без пикеров
-
-**Файлы:** `src/bot/handlers/schedule.ts`, `src/bot/messages.ts`, `src/bot/keyboards.ts`, `src/types/bot.ts`, `src/bot/handlers/navigation.ts`
-
-Было: «Расписание» → выбор недели → выбор дня → сообщение на день.
-Стало: «Расписание» (или `/расписание`) → **одно сообщение со всей неделей**:
-
-```
-📅 Расписание
-
-Понедельник (21.09)
-1. Физра
-2. Алгебра
-...
-
-Вторник (22.09)
-...
+```ts
+// src/services/user.service.ts
+export async function upsertUserFromTelegram(profile: TelegramUserProfile) {
+  return prisma.user.upsert({
+    where: { telegramId },
+    update: { username, firstName, lastName },
+    create: { telegramId, username, firstName, lastName },
+  });
+}
 ```
 
-Без ДЗ, с клавиатурой меню. Причина: шаблон расписания одинаков каждую неделю —
-выбор недели не имел смысла. Флоу `sched` удалён полностью: из типа `Flow`, из
-роутера, из клавиатур; `scheduleDayMessage`/`scheduleWeekHeader` заменены одним
-`scheduleWeekMessage(days: WeekDayLessons[])`.
+Upsert только на `/start`, без проверок на каждое сообщение. В админ-уведомлении автор теперь «Иван @ivanov (id: 123)»; при отсутствии записи — просто id.
 
-### Правка 2. Возврат «« Недели» / «« Дни» починен
+### Правки после тестирования
 
-**Файлы:** `src/bot/handlers/navigation.ts`
+1. Расписание — одним сообщением, без пикеров (флоу `sched` удалён из `Flow`, роутера и клавиатур):
 
-Причина бага: роутер вообще не обрабатывал тексты `BTN_WEEKS` и `BTN_DAYS` —
-нажатие молча проваливалось (обрабатывался только `BTN_MENU`).
-
-Теперь из любой точки флоу:
-
-- «« Недели» → пикер недель текущего флоу (заголовок подсказывает, что выбрано);
-- «« Дни» → пикер дней текущей недели;
-- заголовки пересчитываются через `flowWeekTitle(flow, offset)`.
-
-### Правка 3. «✏️ Заполнить» → «✏️ Дополнительно»
-
-**Файлы:** `src/bot/messages.ts`
-
-Кнопка переименована (`BTN_ADDITIONAL_ADD`), заголовок флоу —
-«📌 Дополнительно — добавление» (было «заполнение»).
-
-### Правка 4. Выбор урока — в reply-клавиатуру
-
-**Файлы:** `src/bot/keyboards.ts`, `src/bot/handlers/homework.ts`, `src/bot/handlers/navigation.ts`, `src/types/bot.ts`
-
-Было: инлайн-клавиатура уроков в сообщении + отдельные колбэки; возврат назад из
-неё был неочевиден, сообщений было много.
-
-Стало: после выбора дня бот присылает список уроков и **reply-клавиатуру**
-`lessonsReplyKeyboard(labels, { backToDays: true })`:
-
-```
-[1. Физра] [2. Алгебра] [3. Литература]
-[« Дни] [« Меню]
+```ts
+// src/bot/messages.ts
+export function scheduleWeekMessage(days: WeekDayLessons[]): string {
+  const lines: string[] = [SCHEDULE_TITLE, ""];
+  for (const { date, lessons } of days) {
+    lines.push(`${dayTitle(date)} (${formatDate(date)})`);
+    for (const lesson of lessons)
+      lines.push(`${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`);
+  }
+  ...
+}
 ```
 
-- Соответствие «текст кнопки → урок» хранится в сессии (`lessonChoices`), поэтому
-  роутер матчит кнопку по актуальным данным, а не по захардкоженным номерам.
-- Нажатие другого урока во время ввода текста переключает цель ввода без потери
-  сценария; нажатие «« Дни»/«« Меню»/недели отменяет ввод.
-- Инлайн-пикер уроков и его колбэки удалены. Инлайн остался только у админ-модерации.
-- После сохранения/отказа клавиатура возвращается к пикеру дней.
+2. Починен возврат: тексты `BTN_WEEKS` / `BTN_DAYS` раньше вообще не обрабатывались роутером — нажатие молча проваливалось. Теперь «⬅️ Недели» открывает пикер недель текущего флоу, «⬅️ Дни» — пикер дней текущей недели.
+3. Уроки перенесены из inline в reply-клавиатуру (`lessonsReplyKeyboard`), инлайн-пикер и его колбэки удалены.
+4. «✏️ Заполнить» → «✏️ Дополнительно», заголовок — «Дополнительно — добавление».
 
-### Правка 5. Документация
+Не тронуто: инлайн-модерация админов, логика `approveHomework` / `rejectHomework`, шаблон расписания и сид, запросы сервисов.
 
-`docs/ARCHITECTURE.md` — подробное описание текущего устройства (поток данных,
-флоу, AI-проверка, БД, env) с примерами кода. Настоящий отчёт — хронология
-изменений.
+## 4. UI
 
----
+Все пользовательские клавиатуры — reply, перерисовываются на каждом шаге:
 
-## Принятые решения и отклонения от плана
+```ts
+// src/bot/keyboards.ts
+export function lessonsReplyKeyboard(choices: LessonChoice[]): Keyboard {
+  const kb = new Keyboard();
+  for (const choice of choices) kb.text(choice.label).row(); // «1. Физра»
+  return kb.text(BTN_DAYS).text(BTN_MENU).resized();
+}
+```
 
-### Этап 1
+Инлайн остался только там, где он нужен по смыслу — кнопки «Одобрить/Отклонить» в админ-уведомлении (`adminReviewKeyboard`). Сообщений на флоу стало меньше: выбор урока и ввод текста не создают отдельных «служебных» сообщений с кнопками.
 
-| Решение | Обоснование |
-|---|---|
-| Миграция написана вручную (SQL-файл), а не `prisma migrate dev` | В песочнице нет `DATABASE_URL`; на деплое применяется штатным `prisma migrate deploy` из `vercel-build` |
-| « Дни из инлайн-пикера уроков отправляет новое сообщение, а не редактирует | Reply-клавиатуру нельзя прикрепить через `editMessageText` |
-| «Дополнительно» из пикера дней просмотра ведёт в выбор недели | Единообразие reply-навигации (в этапе 2 заменено прямым показом недели) |
-| `checkTextOnTopic` возвращает `boolean \| null`, а не объект-вердикт | `null` = AI недоступен — оба флоу в этом случае сохраняют запись (ДЗ — через pending-модерацию) |
-| Потеря сессии (рестарт serverless-инстанса) → мягкий возврат в меню | Вместо падения на `undefined`-полях сессии |
-| Удалён `BOT_ERROR_TEXT`, `HOMEWORK_EMPTY_TEXT` → `EMPTY_VALUE_TEXT` | Ошибки теперь только из реестра; «—» используется для пустых значений в просмотрах |
+## 5. Поток данных
 
-### Этап 2
+Обновление от Telegram:
 
-| Решение | Обоснование |
-|---|---|
-| Флоу `sched` удалён из типа `Flow`, а не «заглушен» | Мёртвый код в роутере/клавиатурах/сообщениях вычищен полностью |
-| В сообщении расписания даты рядом с днями: «Понедельник (21.09)» | Формат «день — уроки» сохранён, даты полезны и не мешают |
-| Клавиатура уроков остаётся активной во время ввода текста | Замена старому inline-поведению «« Дни»: переключение урока без потери сценария, отмена — любой навигационной кнопкой |
-| Пустой день в расписании — строка «—» | Явный признак «уроков нет» вместо пустого блока |
+```
+POST /api/telegram/webhook
+↓ проверка secret token (x-telegram-bot-api-secret-token)
+↓ bot.handleUpdate(update)
+↓ registerNavigationHandlers: message:text → матч текста с константой кнопки
+↓ handleWeek / handleDay / handleLessonChoice
+↓ services: getWeekLessons / getDayHomework / getLessonsInRange / upsertAdditional
+↓ Prisma
+↓ ctx.reply(текст, { reply_markup: reply-клавиатура следующего шага })
+```
 
----
+Сохранение ДЗ с цензурой и модерацией:
 
-## Итоговое состояние
+```
+Ученик ввёл текст (pending.type === "lesson")
+↓ checkTextOnTopic(text)
+↓ false → ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED) — запись не создаётся
+↓ true / null → saveHomework({ lessonId, text, createdBy })
+↓ ДЗ нет → create → APPROVED → админам «новое ДЗ» (без oldText)
+↓ ДЗ есть → compareHomework(existing, new)
+↓ same + betterText → update text → APPROVED → уведомление «Прошлое ДЗ / Новое ДЗ»
+↓ same=false или AI недоступен → pendingText, статус PENDING
+↓ инлайн «Одобрить/Отклонить» админам
+↓ approve → pendingText становится text; reject → pendingText очищен, старый текст остался
+```
 
-**Новые файлы:** `src/lib/errors.ts`, `src/lib/subjects.ts`, `src/services/user.service.ts`,
-`src/bot/handlers/navigation.ts`, `src/types/*.ts` (7 файлов + барель),
-`prisma/migrations/20260917000000_add_user_model/migration.sql`,
-`docs/ARCHITECTURE.md`, `docs/REFACTORING_REPORT.md`.
+## 6. Почему так, а не иначе
 
-**Удалены:** `src/types.ts`, инлайн-пикер уроков и его колбэки, флоу `sched`,
-`scheduleDayMessage`/`scheduleWeekHeader`.
+1. Reply вместо inline для навигации — клавиатура всегда видна под полем ввода, не требует `editMessageText` (reply-клавиатуру нельзя прикрепить к редактированию) и не плодит сообщения с кнопками.
+2. Расписание одной неделей — шаблон одинаков каждую неделю, пикеры недели/дня не несут информации; флоу `sched` удалён целиком, а не заглушен.
+3. Дискриминированное объединение вместо `oldText?: string | null` — компилятор заставляет обработать случай «старого текста нет», баг с `undefined` в уведомлении становится невозможным по типам.
+4. Цензура до сохранения, а не после — отклонённый текст никогда не попадает в БД и не уходит админам на модерацию.
+5. `boolean | null` вместо исключения при недоступности AI — проверка не должна блокировать сохранение; fallback предсказуем: ДЗ → pending-модерация, «Дополнительно» → сохранить.
+6. Миграция `User` написана вручную (SQL-файл), а не `prisma migrate dev` — в песочнице нет `DATABASE_URL`; на деплое её применит уже настроенный `prisma migrate deploy`.
 
-**Инлайн-клавиатуры остались только** в админ-модерации ДЗ; вся пользовательская
-навигация — reply-кнопки под полем ввода.
+## Преимущества
+
+- ✅ Все ошибки — с стабильными кодами и одним текстом из реестра; вебхук всегда отвечает структурированным JSON.
+- ✅ `oldText` гарантирован типами: у нового ДЗ его нет, у перезаписи — обязателен.
+- ✅ Навигация всегда под рукой (reply), возврат «⬅️ Недели»/«⬅️ Дни» работает из любой точки флоу.
+- ✅ Роутер матчит константы из `messages.ts` — клавиатуры и обработчики не могут разойтись.
+- ✅ Спам и нецелевой текст отсекаются до записи в БД; недоступность AI не ломает сохранение.
+- ✅ Авторы в уведомлениях читаемы (имя + username), хранилище обновляется одним upsert на `/start`.
+- ✅ Расписание — одно сообщение вместо трёх шагов; «Физра» вместо «Физическая культура и здоровье».
+- ✅ Типы разбиты по доменам, импорты не изменились — остальной код не переписывался.
