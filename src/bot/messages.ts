@@ -13,9 +13,9 @@ import type {
   DayHomeworkRow,
   DayKey,
   HomeworkSaveAction,
-  Lesson,
   NewHomeworkNotification,
   UserDisplayInfo,
+  WeekDayLessons,
   WeekOffset,
 } from "@/types";
 
@@ -46,7 +46,7 @@ export const BTN_SCHEDULE = "📅 Расписание";
 export const BTN_HOMEWORK_VIEW = "📝 Домашнее задание";
 export const BTN_HOMEWORK_ADD = "✏️ Добавить ДЗ";
 export const BTN_ADDITIONAL_VIEW = "📌 Дополнительно";
-export const BTN_ADDITIONAL_ADD = "✏️ Заполнить";
+export const BTN_ADDITIONAL_ADD = "✏️ Дополнительно";
 export const BTN_MENU = "« Меню";
 export const BTN_WEEKS = "« Недели";
 export const BTN_DAYS = "« Дни";
@@ -77,29 +77,31 @@ export const SCHOOL_DAY_SHORT_LABELS: readonly string[] = [
 
 // ── Schedule ────────────────────────────────────────────────────────────────
 
-export const SCHEDULE_PICK_TEXT = `📅 Расписание\n\n${PICK_WEEK_TEXT}`;
+export const SCHEDULE_TITLE = "📅 Расписание";
 export const SCHEDULE_EMPTY_TEXT = "Расписание пока не заполнено.";
-
-export function scheduleWeekHeader(
-  offset: WeekOffset,
-  from: Date,
-  to: Date
-): string {
-  return `📅 ${WEEK_LABELS[offset]}\n${formatDate(from)} – ${formatDate(to)}`;
-}
 
 export function dayTitle(date: Date): string {
   return DAY_LABELS[dayKeyFromDate(date)];
 }
 
-/** One day's lesson list for the schedule flow. */
-export function scheduleDayMessage(date: Date, lessons: Lesson[]): string {
-  const header = `${dayTitle(date)} (${formatDate(date)})`;
-  if (lessons.length === 0) return `${header}\n\n${NO_LESSONS_TEXT}`;
-  const lines = lessons.map(
-    (lesson) => `${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`
-  );
-  return [header, "", ...lines].join("\n");
+/** The whole week in one message: "День (дата)" + numbered lessons, no homework. */
+export function scheduleWeekMessage(days: WeekDayLessons[]): string {
+  const lines: string[] = [SCHEDULE_TITLE, ""];
+  let total = 0;
+  for (const { date, lessons } of days) {
+    lines.push(`${dayTitle(date)} (${formatDate(date)})`);
+    if (lessons.length === 0) {
+      lines.push(EMPTY_VALUE_TEXT);
+    } else {
+      for (const lesson of lessons) {
+        lines.push(`${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`);
+      }
+    }
+    lines.push("");
+    total += lessons.length;
+  }
+  if (total === 0) return SCHEDULE_EMPTY_TEXT;
+  return lines.join("\n").trimEnd();
 }
 
 // ── Homework: flows ─────────────────────────────────────────────────────────
@@ -179,7 +181,7 @@ export function homeworkSavedMessage(
 // ── Additional ("Дополнительно") ────────────────────────────────────────────
 
 export const ADDITIONAL_VIEW_PICK_TEXT = `📌 Дополнительно\n\n${PICK_WEEK_TEXT}`;
-export const ADDITIONAL_ADD_TITLE_PREFIX = "📌 Дополнительно — заполнение";
+export const ADDITIONAL_ADD_TITLE_PREFIX = "📌 Дополнительно — добавление";
 export const ADDITIONAL_ADD_PICK_TEXT = `${ADDITIONAL_ADD_TITLE_PREFIX}\n\n${PICK_WEEK_TEXT}`;
 export const ADDITIONAL_SAVED_TEXT = "✅ Сохранено";
 

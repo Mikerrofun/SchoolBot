@@ -1,7 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import { WEEK_LABELS } from "@/lib/weeks";
-import { shortSubject } from "@/lib/subjects";
-import type { Flow, WeekOffset } from "@/types";
+import type { Flow, LessonChoice } from "@/types";
 import {
   BTN_ADDITIONAL_ADD,
   BTN_ADDITIONAL_VIEW,
@@ -13,7 +12,6 @@ import {
   BTN_REJECT,
   BTN_SCHEDULE,
   BTN_WEEKS,
-  DAY_SHORT_LABELS,
   SCHOOL_DAY_SHORT_LABELS,
 } from "./messages";
 
@@ -53,25 +51,14 @@ export function daysReplyKeyboard(flow: Flow): Keyboard {
   return kb.text(BTN_WEEKS).text(BTN_MENU).resized();
 }
 
-// ── Inline keyboards: lesson picking and admin review stay in messages ─────
-
-/** Lesson picker for the add flow, with « Дни / « Меню navigation. */
-export function lessonKeyboard(
-  flow: Flow,
-  offset: WeekOffset,
-  dayKey: string,
-  lessons: { id: number; lessonNumber: number; subject: string }[]
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  lessons.forEach((lesson) => {
-    kb.text(
-      `${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`,
-      `${flow}:l:${offset}:${dayKey}:${lesson.id}`
-    ).row();
-  });
-  kb.text(BTN_DAYS, `${flow}:days:${offset}`).text(BTN_MENU, "menu");
-  return kb;
+/** Lesson options for the add flow as reply buttons, with a nav row. */
+export function lessonsReplyKeyboard(choices: LessonChoice[]): Keyboard {
+  const kb = new Keyboard();
+  for (const choice of choices) kb.text(choice.label).row();
+  return kb.text(BTN_DAYS).text(BTN_MENU).resized();
 }
+
+// ── Inline keyboards: admin review stays in messages ────────────────────────
 
 export function adminReviewKeyboard(homeworkId: number): InlineKeyboard {
   return new InlineKeyboard()
