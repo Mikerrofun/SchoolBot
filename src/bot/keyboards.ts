@@ -1,103 +1,81 @@
-import { InlineKeyboard } from "grammy";
-import { dateKey, dayKeyFromDate, DAY_LABELS, WEEK_LABELS } from "@/lib/weeks";
-import type { WeekDayLessons, WeekOffset } from "@/types";
+import { InlineKeyboard, Keyboard } from "grammy";
+import { WEEK_LABELS } from "@/lib/weeks";
+import type { Flow, WeekOffset } from "@/types";
 import {
+  BTN_ADDITIONAL_ADD,
   BTN_ADDITIONAL_VIEW,
   BTN_APPROVE,
   BTN_DAYS,
   BTN_HOMEWORK_ADD,
   BTN_HOMEWORK_VIEW,
-  BTN_LESSONS,
   BTN_MENU,
   BTN_REJECT,
   BTN_SCHEDULE,
   BTN_WEEKS,
-  dayButtonLabel,
+  DAY_SHORT_LABELS,
 } from "./messages";
 
-export type Flow = "sched" | "hwv" | "hwa" | "adv" | "ada";
+// ── Reply keyboards: the whole navigation lives under the input field ──────
 
-export function mainMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text(BTN_SCHEDULE, "sched:pick")
+/** Main menu: the entry points of all five flows. */
+export function mainMenuReply(): Keyboard {
+  return new Keyboard()
+    .text(BTN_SCHEDULE)
     .row()
-    .text(BTN_HOMEWORK_VIEW, "hwv:pick")
+    .text(BTN_HOMEWORK_VIEW)
     .row()
-    .text(BTN_HOMEWORK_ADD, "hwa:pick")
+    .text(BTN_HOMEWORK_ADD)
     .row()
-    .text(BTN_ADDITIONAL_VIEW, "adv:pick");
+    .text(BTN_ADDITIONAL_VIEW)
+    .row()
+    .text(BTN_ADDITIONAL_ADD)
+    .resized();
 }
 
-export function weekKeyboard(flow: Flow): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  ([-1, 0, 1] as WeekOffset[]).forEach((offset, i) => {
-    if (i > 0) kb.row();
-    kb.text(WEEK_LABELS[offset], `${flow}:w:${offset}`);
-  });
-  kb.row().text(BTN_MENU, "menu");
-  return kb;
+/** Week picker: previous / current / next week. */
+export function weeksReply(): Keyboard {
+  const kb = new Keyboard();
+  ([-1, 0, 1] as WeekOffset[]).forEach((offset) => kb.text(WEEK_LABELS[offset]));
+  return kb.row().text(BTN_MENU).resized();
 }
 
 /**
- * Day picker where every button lists that day's lessons,
- * e.g. "Пн: Алгебра, Русский" or "Пн: уроков нет".
+ * Day picker: plain «Пн Вт Ср Чт Пт» (no lesson lists in buttons).
+ * The homework flows additionally get the "Дополнительно" shortcut.
  */
-export function dayKeyboard(
-  flow: Flow,
-  offset: WeekOffset,
-  days: WeekDayLessons[]
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  days.forEach(({ date, lessons }, i) => {
-    if (i > 0) kb.row();
-    kb.text(
-      dayButtonLabel(date, lessons.map((l) => l.subject)),
-      `${flow}:d:${offset}:${dateKey(date)}`
-    );
-  });
+export function daysReply(flow: Flow): Keyboard {
+  const kb = new Keyboard();
+  DAY_SHORT_LABELS.forEach((label) => kb.text(label));
+  kb.row();
   if (flow === "hwv" || flow === "hwa") {
-    kb.row().text(BTN_ADDITIONAL_VIEW, `${flow}:extra:${offset}`);
+    kb.text(BTN_ADDITIONAL_VIEW).row();
   }
-  kb.row().text(BTN_WEEKS, `${flow}:pick`).text(BTN_MENU, "menu");
-  return kb;
+  return kb.text(BTN_WEEKS).text(BTN_MENU).resized();
 }
 
-/** Plain Mon–Fri picker without lesson lists (used by "Дополнительно" editing). */
-export function simpleDayKeyboard(
-  flow: Flow,
-  offset: WeekOffset,
-  dates: Date[]
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  dates.forEach((date, i) => {
-    if (i > 0) kb.row();
-    kb.text(DAY_LABELS[dayKeyFromDate(date)], `${flow}:d:${offset}:${dateKey(date)}`);
-  });
-  kb.row().text(BTN_WEEKS, `${flow}:pick`).text(BTN_MENU, "menu");
-  return kb;
+/** Keyboard while the user is typing free text (homework / additional). */
+export function pendingInputReply(): Keyboard {
+  return new Keyboard().text(BTN_MENU).resized();
 }
 
+// ── Inline keyboards: lesson pickers and admin actions stay inline ─────────
+
+/** Lessons of the selected day, with an inline « Дни button to go back. */
 export function lessonKeyboard(
   flow: Flow,
   offset: WeekOffset,
-  dateKey: string,
+  dayKey: string,
   lessons: { id: number; lessonNumber: number; subject: string }[]
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
   lessons.forEach((lesson) => {
     kb.text(
       `${lesson.lessonNumber}. ${lesson.subject}`,
-      `${flow}:l:${offset}:${dateKey}:${lesson.id}`
+      `${flow}:l:${offset}:${dayKey}:${lesson.id}`
     ).row();
   });
-  kb.text(BTN_DAYS, `${flow}:w:${offset}`).text(BTN_MENU, "menu");
+  kb.text(BTN_DAYS, `bk:days:${offset}`);
   return kb;
-}
-
-export function backKeyboard(flow: Flow, offset: WeekOffset, dateKey: string) {
-  return new InlineKeyboard()
-    .text(BTN_LESSONS, `${flow}:d:${offset}:${dateKey}`)
-    .text(BTN_MENU, "menu");
 }
 
 export function adminReviewKeyboard(homeworkId: number): InlineKeyboard {

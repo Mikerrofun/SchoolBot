@@ -1,113 +1,30 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "@/types";
-import { dateKey, getWeekWindow, parseDateKey } from "@/lib/weeks";
-import type { WeekOffset } from "@/types";
-import { isAdmin } from "@/lib/admin";
-import { getLessonById, getLessonsInRange, getWeekLessons } from "@/services/schedule.service";
-import { getDayHomework, saveHomework } from "@/services/homework.service";
+import { checkTextRelevance } from "@/lib/ai";
+import { ERROR_MESSAGES } from "@/lib/errors";
+import { parseDateKey } from "@/lib/weeks";
+import { getLessonById } from "@/services/schedule.service";
+import { saveHomework } from "@/services/homework.service";
+import type { AdminReviewReason, MyContext, NewHomeworkNotification } from "@/types";
+import { pendingInputReply } from "../keyboards";
 import {
-  backKeyboard,
-  dayKeyboard,
-  lessonKeyboard,
-  weekKeyboard,
-} from "../keyboards";
-import {
-  HOMEWORK_ADD_PICK_TEXT,
-  HOMEWORK_ADD_TITLE_PREFIX,
+  ERROR_HOMEWORK_NOT_RELEVANT,
   HOMEWORK_PENDING_AI_DOWN_TEXT,
   HOMEWORK_PENDING_SAVED_TEXT,
-  HOMEWORK_VIEW_PICK_TEXT,
-  HOMEWORK_VIEW_TITLE_PREFIX,
   LESSON_NOT_FOUND_TEXT,
-  PICK_DAY_TEXT,
-  PICK_LESSON_TEXT,
-  dayHomeworkMessage,
-  dayTitle,
-  flowWeekTitle,
   homeworkInputPrompt,
   homeworkSavedMessage,
 } from "../messages";
 import { notifyAdminsNewHomework } from "./admin";
+import { showWeeksForFlow } from "./navigation";
 
 export function registerHomeworkHandlers(bot: Bot<MyContext>) {
-  bot.command("дз", (ctx) =>
-    ctx.reply(HOMEWORK_VIEW_PICK_TEXT, { reply_markup: weekKeyboard("hwv") })
-  );
-  bot.command("добавить", (ctx) =>
-    ctx.reply(HOMEWORK_ADD_PICK_TEXT, { reply_markup: weekKeyboard("hwa") })
-  );
+  bot.command("дз", (ctx) => showWeeksForFlow(ctx, "hwv"));
+  bot.command("добавить", (ctx) => showWeeksForFlow(ctx, "hwa"));
 
-  bot.callbackQuery("hwv:pick", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText(HOMEWORK_VIEW_PICK_TEXT, {
-      reply_markup: weekKeyboard("hwv"),
-    });
-  });
-
-  bot.callbackQuery("hwa:pick", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText(HOMEWORK_ADD_PICK_TEXT, {
-      reply_markup: weekKeyboard("hwa"),
-    });
-  });
-
-  // Week selected -> day picker listing each day's lessons.
-  bot.callbackQuery(/^(hwv|hwa):w:(-1|0|1)$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const [, flow, offsetRaw] = ctx.match!;
-    const offset = Number(offsetRaw) as WeekOffset;
-    const days = await getWeekLessons(getWeekWindow(offset));
-
-    const prefix =
-      flow === "hwv" ? HOMEWORK_VIEW_TITLE_PREFIX : HOMEWORK_ADD_TITLE_PREFIX;
-    await ctx.editMessageText(`${flowWeekTitle(prefix, offset)}\n\n${PICK_DAY_TEXT}`, {
-      reply_markup: dayKeyboard(flow as "hwv" | "hwa", offset, days),
-    });
-  });
-
-  // Day selected in view flow -> the whole day in one message.
-  bot.callbackQuery(/^hwv:d:(-1|0|1):(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const [, offsetRaw, dayDateKey] = ctx.match!;
-    const offset = Number(offsetRaw) as WeekOffset;
-    const date = parseDateKey(dayDateKey);
-    if (!date) return;
-
-    const viewerIsAdmin = isAdmin(ctx.from?.id);
-    const { rows, additional } = await getDayHomework(date, {
-      includePending: viewerIsAdmin,
-    });
-
-    await ctx.editMessageText(
-      dayHomeworkMessage(date, rows, additional, viewerIsAdmin),
-      {
-        reply_markup: backKeyboard("hwv", offset, dayDateKey),
-      }
-    );
-  });
-
-  // Day selected in add flow -> lesson list (editing scenario).
-  bot.callbackQuery(/^hwa:d:(-1|0|1):(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const [, offsetRaw, dayDateKey] = ctx.match!;
-    const offset = Number(offsetRaw) as WeekOffset;
-    const date = parseDateKey(dayDateKey);
-    if (!date) return;
-
-    const window = getWeekWindow(offset);
-    const lessons = (await getLessonsInRange(window.start, window.end)).filter(
-      (l) => dateKey(l.date) === dayDateKey
-    );
-
-    await ctx.editMessageText(`${dayTitle(date)}\n\n${PICK_LESSON_TEXT}`, {
-      reply_markup: lessonKeyboard("hwa", offset, dayDateKey, lessons),
-    });
-  });
-
-  // Lesson selected in add flow -> ask for homework text.
+  // Lesson selected (inline) in the add flow -> ask for homework text.
   bot.callbackQuery(/^hwa:l:(-1|0|1):(\d{4}-\d{2}-\d{2}):(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
-    const [, , dayDateKey, lessonIdRaw] = ctx.match!;
+    const [, offsetRaw, dayDateKey, lessonIdRaw] = ctx.match!;
     const lessonId = Number(lessonIdRaw);
     const date = parseDateKey(dayDateKey);
     if (!date) return;
@@ -118,6 +35,7 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
       return;
     }
 
+    ctx.session.nav = { flow: "hwa", offset: Number(offsetRaw) as -1 | 0 | 1 };
     ctx.session.pending = {
       type: "lesson",
       lessonId: lesson.id,
@@ -125,15 +43,29 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
       dateKey: dayDateKey,
     };
 
-    await ctx.reply(homeworkInputPrompt(lesson.subject, date));
+    await ctx.reply(homeworkInputPrompt(lesson.subject, date), {
+      reply_markup: pendingInputReply(),
+    });
   });
 
-  // Free text while a lesson is pending -> save homework.
+  // Free text while a lesson is pending -> moderate, then save homework.
   bot.on("message:text", async (ctx) => {
     const pending = ctx.session.pending;
     if (!pending || pending.type !== "lesson") return;
 
     ctx.session.pending = undefined;
+
+    // AI moderation before anything is stored. Both outcomes (irrelevant
+    // text, AI unavailable) are explicit rejections with registry messages.
+    const relevance = await checkTextRelevance(ctx.message.text);
+    if (!relevance) {
+      await ctx.reply(ERROR_MESSAGES.AI_UNAVAILABLE);
+      return;
+    }
+    if (!relevance.relevant) {
+      await ctx.reply(ERROR_MESSAGES.HOMEWORK_NOT_RELEVANT);
+      return;
+    }
 
     const result = await saveHomework({
       lessonId: pending.lessonId,
@@ -144,21 +76,41 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     if (result.status === "PENDING") {
       const aiDown = result.action === "pending_ai_down";
       await ctx.reply(aiDown ? HOMEWORK_PENDING_AI_DOWN_TEXT : HOMEWORK_PENDING_SAVED_TEXT);
+
       const date = parseDateKey(pending.dateKey);
       if (date) {
-        await notifyAdminsNewHomework(bot, {
-          homeworkId: result.id,
-          reason: aiDown ? "ai_down" : "same_false",
-          authorId: String(ctx.from?.id ?? ""),
-          subject: pending.subject,
-          date,
-          oldText: result.oldText,
-          text: result.text,
-        });
+        const reason: AdminReviewReason =
+          result.action === "created" ? "new" : aiDown ? "ai_down" : "same_false";
+
+        // The save-result union guarantees oldText exactly when the homework
+        // replaced an existing record; a first-time submission has none.
+        const notification: NewHomeworkNotification =
+          result.action === "created"
+            ? {
+                homeworkId: result.id,
+                reason,
+                authorId: String(ctx.from?.id ?? ""),
+                subject: pending.subject,
+                date,
+                text: result.text,
+              }
+            : {
+                homeworkId: result.id,
+                reason,
+                authorId: String(ctx.from?.id ?? ""),
+                subject: pending.subject,
+                date,
+                text: result.text,
+                oldText: result.oldText,
+              };
+
+        await notifyAdminsNewHomework(bot, notification);
       }
       return;
     }
 
-    await ctx.reply(homeworkSavedMessage(result.action, pending.subject, result.text));
+    await ctx.reply(
+      homeworkSavedMessage(result.action, pending.subject, result.text)
+    );
   });
 }
