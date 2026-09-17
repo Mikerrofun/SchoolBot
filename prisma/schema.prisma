@@ -57,3 +57,15 @@ model AdditionalHomework {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Class members known to the bot. Written on /start only (upsert refreshes
+// username/nickname); used to show a human-readable author in admin notices.
+model User {
+  id           Int      @id @default(autoincrement())
+  telegramId   String   @unique
+  username     String?
+  firstName    String?
+  lastName     String?
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

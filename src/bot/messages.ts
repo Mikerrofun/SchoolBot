@@ -1,5 +1,6 @@
 // All user-facing bot texts live here — constants and pure template helpers.
 // Handlers and keyboards must not hardcode message strings.
+// Error texts are NOT here — they come from the registry (src/lib/errors.ts).
 
 import {
   DAY_LABELS,
@@ -7,10 +8,14 @@ import {
   dayKeyFromDate,
   formatDate,
 } from "@/lib/weeks";
+import { shortSubject } from "@/lib/subjects";
 import type {
-  AdminReviewReason,
   DayHomeworkRow,
   DayKey,
+  HomeworkSaveAction,
+  Lesson,
+  NewHomeworkNotification,
+  UserDisplayInfo,
   WeekOffset,
 } from "@/types";
 
@@ -20,7 +25,7 @@ export const MENU_TEXT = `👋 Привет! Это бот класса.
 
 Здесь можно посмотреть расписание и домашнее задание на прошлую, текущую и следующую неделю, а также записать новое ДЗ.
 
-Выбери действие:`;
+Выбери действие кнопкой под полем ввода:`;
 
 // ── Shared ──────────────────────────────────────────────────────────────────
 
@@ -29,13 +34,13 @@ export const PICK_DAY_TEXT = "Выбери день:";
 export const PICK_LESSON_TEXT = "Выбери урок:";
 export const NO_LESSONS_TEXT = "Уроков нет";
 export const LESSON_NOT_FOUND_TEXT = "Урок не найден.";
-export const HOMEWORK_EMPTY_TEXT = "—";
-export const BOT_ERROR_TEXT = "Произошла ошибка, попробуйте позже.";
+/** Placeholder for empty values in views ("Дополнительно: —"). */
+export const EMPTY_VALUE_TEXT = "—";
 export const NOT_ADMIN_ALERT_TEXT = "Подтвердить может только админ.";
 export const REVIEW_APPROVED_MARK = "✅ Подтверждено админом";
 export const REVIEW_REJECTED_MARK = "❌ Отклонено админом";
 
-// ── Button labels ───────────────────────────────────────────────────────────
+// ── Button labels (reply keyboards + inline) ────────────────────────────────
 
 export const BTN_SCHEDULE = "📅 Расписание";
 export const BTN_HOMEWORK_VIEW = "📝 Домашнее задание";
@@ -45,9 +50,30 @@ export const BTN_ADDITIONAL_ADD = "✏️ Заполнить";
 export const BTN_MENU = "« Меню";
 export const BTN_WEEKS = "« Недели";
 export const BTN_DAYS = "« Дни";
-export const BTN_LESSONS = "« Уроки";
 export const BTN_APPROVE = "✅ Подтвердить";
 export const BTN_REJECT = "❌ Отклонить";
+
+// ── Day labels ──────────────────────────────────────────────────────────────
+
+/** Short weekday labels used as reply-keyboard day buttons. */
+export const DAY_SHORT_LABELS: Record<DayKey, string> = {
+  MONDAY: "Пн",
+  TUESDAY: "Вт",
+  WEDNESDAY: "Ср",
+  THURSDAY: "Чт",
+  FRIDAY: "Пт",
+  SATURDAY: "Сб",
+  SUNDAY: "Вс",
+};
+
+/** School week: Monday–Friday reply buttons in order. */
+export const SCHOOL_DAY_SHORT_LABELS: readonly string[] = [
+  DAY_SHORT_LABELS.MONDAY,
+  DAY_SHORT_LABELS.TUESDAY,
+  DAY_SHORT_LABELS.WEDNESDAY,
+  DAY_SHORT_LABELS.THURSDAY,
+  DAY_SHORT_LABELS.FRIDAY,
+];
 
 // ── Schedule ────────────────────────────────────────────────────────────────
 
@@ -62,6 +88,20 @@ export function scheduleWeekHeader(
   return `📅 ${WEEK_LABELS[offset]}\n${formatDate(from)} – ${formatDate(to)}`;
 }
 
+export function dayTitle(date: Date): string {
+  return DAY_LABELS[dayKeyFromDate(date)];
+}
+
+/** One day's lesson list for the schedule flow. */
+export function scheduleDayMessage(date: Date, lessons: Lesson[]): string {
+  const header = `${dayTitle(date)} (${formatDate(date)})`;
+  if (lessons.length === 0) return `${header}\n\n${NO_LESSONS_TEXT}`;
+  const lines = lessons.map(
+    (lesson) => `${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`
+  );
+  return [header, "", ...lines].join("\n");
+}
+
 // ── Homework: flows ─────────────────────────────────────────────────────────
 
 export const HOMEWORK_VIEW_PICK_TEXT = `📝 Домашнее задание\n\n${PICK_WEEK_TEXT}`;
@@ -71,17 +111,6 @@ export const HOMEWORK_ADD_TITLE_PREFIX = "✏️ Добавить ДЗ";
 
 export function flowWeekTitle(prefix: string, offset: WeekOffset): string {
   return `${prefix} — ${WEEK_LABELS[offset]}`;
-}
-
-export function dayTitle(date: Date): string {
-  return DAY_LABELS[dayKeyFromDate(date)];
-}
-
-/** "Пн: Алгебра, Русский" / "Пн: уроков нет" — label for a day button. */
-export function dayButtonLabel(date: Date, subjects: string[]): string {
-  const short = DAY_LABELS[dayKeyFromDate(date)].slice(0, 3);
-  if (subjects.length === 0) return `${short}: ${NO_LESSONS_TEXT}`;
-  return `${short}: ${subjects.join(", ")}`;
 }
 
 // ── Homework: whole day in one message ──────────────────────────────────────
@@ -95,15 +124,15 @@ export function dayHomeworkMessage(
   additional: string | null,
   viewerIsAdmin: boolean
 ): string {
-  const header = `${DAY_LABELS[dayKeyFromDate(date)]}, ${formatDate(date)}`;
+  const header = `${dayTitle(date)}, ${formatDate(date)}`;
   const lines: string[] = [header, ""];
 
   if (rows.length === 0) {
     lines.push(NO_LESSONS_TEXT, "");
   } else {
     for (const { lesson, homework } of rows) {
-      lines.push(`📚 ${lesson.subject}`);
-      lines.push(homework?.text ?? HOMEWORK_EMPTY_TEXT);
+      lines.push(`📚 ${shortSubject(lesson.subject)}`);
+      lines.push(homework?.text ?? EMPTY_VALUE_TEXT);
       // Admins additionally see the text waiting for approval, if any.
       if (viewerIsAdmin && homework?.pendingText) {
         lines.push(`${PENDING_MARK}`);
@@ -113,17 +142,17 @@ export function dayHomeworkMessage(
     }
   }
 
-  lines.push(`📌 Дополнительно: ${additional ?? HOMEWORK_EMPTY_TEXT}`);
+  lines.push(`📌 Дополнительно: ${additional ?? EMPTY_VALUE_TEXT}`);
   return lines.join("\n").trimEnd();
 }
 
 // ── Homework: input & save results ──────────────────────────────────────────
 
 export function homeworkInputPrompt(subject: string, date: Date): string {
-  return `✏️ ${subject} — ${formatDate(date)}\n\nОтправь текст домашнего задания одним сообщением.`;
+  return `✏️ ${shortSubject(subject)} — ${formatDate(date)}\n\nОтправь текст домашнего задания одним сообщением.`;
 }
 
-export const HOMEWORK_SAVED_TEXTS = {
+export const HOMEWORK_SAVED_TEXTS: Record<HomeworkSaveAction, string> = {
   created: "✅ ДЗ записано",
   updated: "✅ ДЗ обновлено (AI улучшил формулировку)",
   kept: "ℹ️ Такое ДЗ уже записано — оставил как есть",
@@ -131,7 +160,7 @@ export const HOMEWORK_SAVED_TEXTS = {
   // Never shown: the PENDING branch replies with HOMEWORK_PENDING_*_TEXT
   // before this dictionary is reached; the key exists to keep types total.
   pending_ai_down: "⏳ ДЗ отправлено на проверку",
-} as const;
+};
 
 export const HOMEWORK_PENDING_SAVED_TEXT =
   "⏳ ДЗ отличается от прошлой недели и отправлено админу на подтверждение.";
@@ -140,17 +169,18 @@ export const HOMEWORK_PENDING_AI_DOWN_TEXT =
   "⚠️ AI-проверка временно недоступна — ДЗ отправлено админу на ручную проверку.";
 
 export function homeworkSavedMessage(
-  action: keyof typeof HOMEWORK_SAVED_TEXTS,
+  action: HomeworkSaveAction,
   subject: string,
   text: string
 ): string {
-  return `${HOMEWORK_SAVED_TEXTS[action]}\n\n📚 ${subject}\n📝 ДЗ:\n${text}`;
+  return `${HOMEWORK_SAVED_TEXTS[action]}\n\n📚 ${shortSubject(subject)}\n📝 ДЗ:\n${text}`;
 }
 
 // ── Additional ("Дополнительно") ────────────────────────────────────────────
 
 export const ADDITIONAL_VIEW_PICK_TEXT = `📌 Дополнительно\n\n${PICK_WEEK_TEXT}`;
-export const ADDITIONAL_ADD_PICK_TEXT = `📌 Дополнительно — заполнение\n\n${PICK_WEEK_TEXT}`;
+export const ADDITIONAL_ADD_TITLE_PREFIX = "📌 Дополнительно — заполнение";
+export const ADDITIONAL_ADD_PICK_TEXT = `${ADDITIONAL_ADD_TITLE_PREFIX}\n\n${PICK_WEEK_TEXT}`;
 export const ADDITIONAL_SAVED_TEXT = "✅ Сохранено";
 
 /** One message for the whole week: "Пн: текст" per day, "—" when empty. */
@@ -161,7 +191,7 @@ export function additionalWeekMessage(
   const lines: string[] = [`📌 Дополнительно — ${WEEK_LABELS[offset]}`, ""];
   for (const { date, text } of rows) {
     lines.push(
-      `${DAY_LABELS[dayKeyFromDate(date)].slice(0, 3)}: ${text ?? HOMEWORK_EMPTY_TEXT}`
+      `${DAY_SHORT_LABELS[dayKeyFromDate(date)]}: ${text ?? EMPTY_VALUE_TEXT}`
     );
   }
   return lines.join("\n");
@@ -178,27 +208,43 @@ export const REVIEW_REASON_SAME_FALSE =
 export const REVIEW_REASON_AI_DOWN =
   "⚠️ AI-проверка недоступна, проверьте вручную — ДЗ на подтверждении:";
 
-export function adminReviewMessage(params: {
-  reason: AdminReviewReason;
-  authorId: string;
-  subject: string;
-  date: Date;
-  oldText: string | null;
-  text: string;
-}): string {
+/** "Имя @username (id: 123)", or just the id when the user record is missing. */
+export function authorLine(authorId: string, authorDisplay?: string): string {
+  return authorDisplay
+    ? `👤 Автор: ${authorDisplay} (id: ${authorId})`
+    : `👤 Автор: id: ${authorId}`;
+}
+
+/** "Иван Иванов @ivanov" from the stored user profile. */
+export function formatUserDisplay(user: UserDisplayInfo): string {
+  const name = [user.firstName, user.lastName]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .trim();
+  return [name, user.username ? `@${user.username}` : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function adminReviewMessage(params: NewHomeworkNotification): string {
   const reason =
     params.reason === "ai_down" ? REVIEW_REASON_AI_DOWN : REVIEW_REASON_SAME_FALSE;
-  return [
+
+  const lines = [
     reason,
-    `👤 Автор: ${params.authorId}`,
-    `📚 ${params.subject}, ${DAY_LABELS[dayKeyFromDate(params.date)]}, ${formatDate(params.date)}`,
+    authorLine(params.authorId, params.authorDisplay),
+    `📚 ${shortSubject(params.subject)}, ${DAY_LABELS[dayKeyFromDate(params.date)]}, ${formatDate(params.date)}`,
     "",
-    "Прошлое ДЗ:",
-    params.oldText ?? HOMEWORK_EMPTY_TEXT,
-    "",
-    "Новое ДЗ:",
-    params.text,
-  ].join("\n");
+  ];
+
+  if ("oldText" in params) {
+    lines.push("Прошлое ДЗ:", params.oldText, "");
+    lines.push("Новое ДЗ:", params.text);
+  } else {
+    lines.push("Новое ДЗ (старого текста не было):", params.text);
+  }
+
+  return lines.join("\n");
 }
 
 export const HOMEWORK_APPROVED_TEXT = "✅ Твоё ДЗ подтверждено";

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { dateKey, weekDates } from "@/lib/weeks";
-import type { WeekWindow } from "@/types";
+import type { AdditionalWeekRow, WeekWindow } from "@/types";
 
 /**
  * "Additional" section for a week window: one row per weekday (Mon–Fri),
@@ -8,7 +8,7 @@ import type { WeekWindow } from "@/types";
  */
 export async function getAdditionalForWeek(
   window: WeekWindow
-): Promise<{ date: Date; text: string | null }[]> {
+): Promise<AdditionalWeekRow[]> {
   const entries = await prisma.additionalHomework.findMany({
     where: { date: { gte: window.start, lte: window.end } },
   });

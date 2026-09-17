@@ -1,25 +1,36 @@
 import { z } from "zod";
+import type { ComparisonResult } from "@/types";
 
-// AI is optional: if OpenRouter is unavailable the bot keeps working
-// and homework is saved without deduplication.
+// AI is optional: if OpenRouter is unavailable the bot keeps working.
+// Both functions return null to mean "verdict unknown", and every caller
+// handles that case explicitly (see homework/additional flows).
 
 const comparisonResultSchema = z.object({
   same: z.boolean(),
   betterText: z.string().optional(),
 });
 
-export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
+const onTopicVerdictSchema = z.object({
+  onTopic: z.boolean(),
+});
 
-const SYSTEM_PROMPT = `Ты помощник, который сравнивает формулировки домашнего задания школьников.
+const COMPARE_SYSTEM_PROMPT = `Ты помощник, который сравнивает формулировки домашнего задания школьников.
 Тебе дают два текста ДЗ по одному и тому же уроку. Определи, это одно и то же задание или разные.
 Если это одно и то же задание, но новая формулировка точнее или полнее — верни улучшенный текст.
 Если задания разные — same=false и betterText не нужен.
 Ответь строго JSON: {"same": boolean, "betterText": string | undefined}`;
 
-export async function compareHomework(
-  existing: string,
-  incoming: string
-): Promise<ComparisonResult | null> {
+const ON_TOPIC_SYSTEM_PROMPT = `Ты модератор записей школьного бота. Тебе дают текст, который ученик хочет сохранить как домашнее задание или заметку по предмету.
+Определи, является ли текст осмысленной записью по делу: домашнее задание, напоминание о задании, примечание к уроку.
+Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, текст не по теме урока.
+Ответь строго JSON: {"onTopic": boolean}`;
+
+/** One JSON-structured OpenRouter chat call; null on any failure. */
+async function callOpenRouterJson<T>(
+  systemPrompt: string,
+  userContent: string,
+  schema: z.ZodType<T>
+): Promise<T | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
@@ -41,11 +52,8 @@ export async function compareHomework(
           temperature: 0,
           response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
-            },
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
           ],
         }),
       }
@@ -60,15 +68,41 @@ export async function compareHomework(
     const content = data.choices?.[0]?.message?.content;
     if (!content) return null;
 
-    const parsed = comparisonResultSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) return null;
-
-    // A "same" result only makes sense with a replacement text when one is given.
-    if (parsed.data.same && !parsed.data.betterText) {
-      return { same: true };
-    }
-    return parsed.data;
+    const parsed = schema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
+}
+
+export async function compareHomework(
+  existing: string,
+  incoming: string
+): Promise<ComparisonResult | null> {
+  const result = await callOpenRouterJson(
+    COMPARE_SYSTEM_PROMPT,
+    `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
+    comparisonResultSchema
+  );
+  if (!result) return null;
+
+  // A "same" result only makes sense with a replacement text when one is given.
+  if (result.same && !result.betterText) {
+    return { same: true };
+  }
+  return result;
+}
+
+/**
+ * Censorship check: is the text a legitimate homework / on-topic note.
+ * Returns true (on topic), false (spam / off topic — reject the entry)
+ * or null (AI unavailable — verdict unknown; callers let the save proceed,
+ * homework still goes through the compare/pending flow).
+ */
+export function checkTextOnTopic(text: string): Promise<boolean | null> {
+  return callOpenRouterJson(
+    ON_TOPIC_SYSTEM_PROMPT,
+    `Текст записи:\n${text}`,
+    onTopicVerdictSchema
+  ).then((verdict) => verdict?.onTopic ?? null);
 }

@@ -1,6 +1,5 @@
 import type { Bot } from "grammy";
-import type { MyContext } from "@/types";
-import type { NewHomeworkNotification } from "@/types";
+import type { MyContext, NewHomeworkNotification } from "@/types";
 import { getAdminIds, isAdmin } from "@/lib/admin";
 import { approveHomework, rejectHomework } from "@/services/homework.service";
 import { adminReviewKeyboard } from "../keyboards";

@@ -2,7 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { compareHomework } from "@/lib/ai";
 import type {
   DayHomework,
+  DayHomeworkOptions,
   HomeworkWithLesson,
+  SaveHomeworkParams,
   SaveHomeworkResult,
 } from "@/types";
 
@@ -16,11 +18,9 @@ import type {
  * is unknown, so the submission goes through the same pending flow — admins
  * get an "AI down" notice instead of the usual one.
  */
-export async function saveHomework(params: {
-  lessonId: number;
-  text: string;
-  createdBy?: string;
-}): Promise<SaveHomeworkResult> {
+export async function saveHomework(
+  params: SaveHomeworkParams
+): Promise<SaveHomeworkResult> {
   const { lessonId, text, createdBy } = params;
   const trimmed = text.trim();
 
@@ -30,13 +30,13 @@ export async function saveHomework(params: {
     const created = await prisma.homework.create({
       data: { lessonId, text: trimmed, createdBy },
     });
+    // First-time homework: there is no old text, so the result carries none.
     return {
       id: created.id,
       action: "created",
       text: created.text,
-      oldText: null,
       aiUsed: false,
-      status: created.status,
+      status: "APPROVED",
     };
   }
 
@@ -100,7 +100,7 @@ export async function getHomeworkByLesson(lessonId: number) {
  */
 export async function getDayHomework(
   date: Date,
-  opts: { includePending?: boolean } = {}
+  opts: DayHomeworkOptions = {}
 ): Promise<DayHomework> {
   const [lessons, additional] = await Promise.all([
     prisma.lesson.findMany({
