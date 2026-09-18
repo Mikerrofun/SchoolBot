@@ -158,7 +158,6 @@ export const HOMEWORK_SAVED_TEXTS: Record<HomeworkSaveAction, string> = {
   created: "✅ ДЗ записано",
   updated: "✅ ДЗ обновлено (AI улучшил формулировку)",
   kept: "ℹ️ Такое ДЗ уже записано — оставил как есть",
-  duplicate_saved: "✅ ДЗ записано",
   // Never shown: the PENDING branch replies with HOMEWORK_PENDING_*_TEXT
   // before this dictionary is reached; the key exists to keep types total.
   pending_ai_down: "⏳ ДЗ отправлено на проверку",

@@ -52,7 +52,12 @@ export async function initBot(): Promise<Bot<MyContext>> {
   const bot = getBot();
 
   if (!botInitPromise) {
-    botInitPromise = bot.init();
+    botInitPromise = bot.init().catch((error) => {
+      // Don't cache the failure: the next update must be able to retry init
+      // (e.g. a transient network error right after a cold start).
+      botInitPromise = null;
+      throw error;
+    });
   }
 
   await botInitPromise;

@@ -29,8 +29,10 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     ctx.session.lessonChoices = undefined;
 
     // Censorship before anything is saved; a rejection creates nothing.
-    const verdict = await checkTextOnTopic(ctx.message.text);
-    if (verdict === false) {
+    // When the AI is unavailable checkTextOnTopic throws AI_UNAVAILABLE —
+    // bot.catch answers the user and nothing is saved either.
+    const onTopic = await checkTextOnTopic(ctx.message.text, pending.subject);
+    if (!onTopic) {
       await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
         reply_markup: daysReplyKeyboard("hwa"),
       });

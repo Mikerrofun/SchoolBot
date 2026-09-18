@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { BotError } from "@/lib/errors";
 import type { ComparisonResult } from "@/types";
 
-// AI is optional: if OpenRouter is unavailable the bot keeps working.
-// Both functions return null to mean "verdict unknown", and every caller
-// handles that case explicitly (see homework/additional flows).
+// compareHomework is optional: if OpenRouter is unavailable it returns null
+// ("verdict unknown") and the submission goes to pending moderation.
+// Censorship (checkTextOnTopic) is fail-closed: it never returns an unknown
+// verdict — it throws AI_UNAVAILABLE, so nothing is ever saved unchecked.
 
 const comparisonResultSchema = z.object({
   same: z.boolean(),
@@ -20,9 +22,9 @@ const COMPARE_SYSTEM_PROMPT = `Ты помощник, который сравн�
 Если задания разные — same=false и betterText не нужен.
 Ответь строго JSON: {"same": boolean, "betterText": string | undefined}`;
 
-const ON_TOPIC_SYSTEM_PROMPT = `Ты модератор записей школьного бота. Тебе дают текст, который ученик хочет сохранить как домашнее задание или заметку по предмету.
-Определи, является ли текст осмысленной записью по делу: домашнее задание, напоминание о задании, примечание к уроку.
-Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, текст не по теме урока.
+const ON_TOPIC_SYSTEM_PROMPT = `Ты модератор записей школьного бота. Тебе дают текст, который ученик хочет сохранить как домашнее задание или заметку, и предмет, к которому запись относится.
+Определи, является ли текст осмысленной записью по делу: домашнее задание, напоминание о задании, примечание к уроку по этому предмету.
+Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, текст не по предмету.
 Ответь строго JSON: {"onTopic": boolean}`;
 
 /** One JSON-structured OpenRouter chat call; null on any failure. */
@@ -34,10 +36,10 @@ async function callOpenRouterJson<T>(
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
+  try {
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -58,8 +60,6 @@ async function callOpenRouterJson<T>(
         }),
       }
     );
-    clearTimeout(timeout);
-
     if (!response.ok) return null;
 
     const data = (await response.json()) as {
@@ -72,6 +72,8 @@ async function callOpenRouterJson<T>(
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -95,14 +97,22 @@ export async function compareHomework(
 
 /**
  * Censorship check: is the text a legitimate homework / on-topic note.
- * Returns true (on topic), false (spam / off topic — reject the entry)
- * or null (AI unavailable — verdict unknown; callers let the save proceed,
- * homework still goes through the compare/pending flow).
+ * Returns true (on topic) or false (spam / off topic — reject the entry).
+ * Throws AI_UNAVAILABLE when no verdict can be obtained (no API key,
+ * OpenRouter down, timeout, unparseable answer) — the entry is never saved
+ * unchecked, and bot.catch tells the user to retry later.
  */
-export function checkTextOnTopic(text: string): Promise<boolean | null> {
-  return callOpenRouterJson(
+export async function checkTextOnTopic(
+  text: string,
+  subject?: string
+): Promise<boolean> {
+  const verdict = await callOpenRouterJson(
     ON_TOPIC_SYSTEM_PROMPT,
-    `Текст записи:\n${text}`,
+    subject
+      ? `Предмет: ${subject}\nТекст записи:\n${text}`
+      : `Текст записи:\n${text}`,
     onTopicVerdictSchema
-  ).then((verdict) => verdict?.onTopic ?? null);
+  );
+  if (!verdict) throw new BotError("AI_UNAVAILABLE");
+  return verdict.onTopic;
 }

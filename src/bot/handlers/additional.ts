@@ -22,8 +22,10 @@ export function registerAdditionalHandlers(bot: Bot<MyContext>) {
     const text = ctx.message.text.trim();
 
     // Censorship before anything is saved; a rejection creates nothing.
-    const verdict = await checkTextOnTopic(text);
-    if (verdict === false) {
+    // When the AI is unavailable checkTextOnTopic throws AI_UNAVAILABLE —
+    // bot.catch answers the user and nothing is saved either.
+    const onTopic = await checkTextOnTopic(text);
+    if (!onTopic) {
       await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
         reply_markup: daysReplyKeyboard("ada"),
       });

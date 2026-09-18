@@ -54,7 +54,6 @@ export type HomeworkSaveAction =
   | "created"
   | "updated"
   | "kept"
-  | "duplicate_saved"
   /** AI unavailable — verdict unknown, saved as PENDING for manual review. */
   | "pending_ai_down";
 
