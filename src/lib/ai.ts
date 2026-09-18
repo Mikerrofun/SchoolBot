@@ -22,9 +22,9 @@ const COMPARE_SYSTEM_PROMPT = `Ты помощник, который сравн�
 Если задания разные — same=false и betterText не нужен.
 Ответь строго JSON: {"same": boolean, "betterText": string | undefined}`;
 
-const ON_TOPIC_SYSTEM_PROMPT = `Ты модератор записей школьного бота. Тебе дают текст, который ученик хочет сохранить как домашнее задание или заметку, и предмет, к которому запись относится.
-Определи, является ли текст осмысленной записью по делу: домашнее задание, напоминание о задании, примечание к уроку по этому предмету.
-Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, текст не по предмету.
+const ON_TOPIC_SYSTEM_PROMPT = `Ты фильтр записей школьного бота. Ученик хочет сохранить текст как домашнее задание или заметку.
+Определи, похож ли текст на осмысленную запись по делу: домашнее задание, напоминание о задании, примечание к уроку.
+Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, случайные буквы или цифры.
 Ответь строго JSON: {"onTopic": boolean}`;
 
 /** One JSON-structured OpenRouter chat call; null on any failure. */
@@ -96,21 +96,17 @@ export async function compareHomework(
 }
 
 /**
- * Censorship check: is the text a legitimate homework / on-topic note.
- * Returns true (on topic) or false (spam / off topic — reject the entry).
- * Throws AI_UNAVAILABLE when no verdict can be obtained (no API key,
- * OpenRouter down, timeout, unparseable answer) — the entry is never saved
- * unchecked, and bot.catch tells the user to retry later.
+ * Censorship filter: does the text look like a legitimate homework / note
+ * entry (as opposed to spam, profanity, nonsense). Returns true (allow) or
+ * false (garbage — reject the entry). Throws AI_UNAVAILABLE when no verdict
+ * can be obtained (no API key, OpenRouter down, timeout, unparseable
+ * answer) — callers send the submission to pending moderation instead of
+ * approving or rejecting it blindly.
  */
-export async function checkTextOnTopic(
-  text: string,
-  subject?: string
-): Promise<boolean> {
+export async function checkTextOnTopic(text: string): Promise<boolean> {
   const verdict = await callOpenRouterJson(
     ON_TOPIC_SYSTEM_PROMPT,
-    subject
-      ? `Предмет: ${subject}\nТекст записи:\n${text}`
-      : `Текст записи:\n${text}`,
+    `Текст записи:\n${text}`,
     onTopicVerdictSchema
   );
   if (!verdict) throw new BotError("AI_UNAVAILABLE");

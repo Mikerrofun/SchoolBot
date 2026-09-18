@@ -10,6 +10,7 @@ import {
 } from "@/lib/weeks";
 import { shortSubject } from "@/lib/subjects";
 import type {
+  AdditionalReviewNotification,
   DayHomeworkRow,
   DayKey,
   HomeworkSaveAction,
@@ -134,7 +135,9 @@ export function dayHomeworkMessage(
   } else {
     for (const { lesson, homework } of rows) {
       lines.push(`📚 ${shortSubject(lesson.subject)}`);
-      lines.push(homework?.text ?? EMPTY_VALUE_TEXT);
+      // An empty approved text (a rejected first-time pending entry)
+      // reads as "nothing saved".
+      lines.push(homework?.text || EMPTY_VALUE_TEXT);
       // Admins additionally see the text waiting for approval, if any.
       if (viewerIsAdmin && homework?.pendingText) {
         lines.push(`${PENDING_MARK}`);
@@ -144,7 +147,7 @@ export function dayHomeworkMessage(
     }
   }
 
-  lines.push(`📌 Дополнительно: ${additional ?? EMPTY_VALUE_TEXT}`);
+  lines.push(`📌 Дополнительно: ${additional || EMPTY_VALUE_TEXT}`);
   return lines.join("\n").trimEnd();
 }
 
@@ -183,6 +186,8 @@ export const ADDITIONAL_VIEW_PICK_TEXT = `📌 Дополнительно\n\n${P
 export const ADDITIONAL_ADD_TITLE_PREFIX = "📌 Дополнительно — добавление";
 export const ADDITIONAL_ADD_PICK_TEXT = `${ADDITIONAL_ADD_TITLE_PREFIX}\n\n${PICK_WEEK_TEXT}`;
 export const ADDITIONAL_SAVED_TEXT = "✅ Сохранено";
+export const ADDITIONAL_PENDING_AI_DOWN_TEXT =
+  "⚠️ AI-проверка временно недоступна — запись отправлена админу на ручную проверку.";
 
 /** One message for the whole week: "Пн: текст" per day, "—" when empty. */
 export function additionalWeekMessage(
@@ -251,3 +256,22 @@ export function adminReviewMessage(params: NewHomeworkNotification): string {
 export const HOMEWORK_APPROVED_TEXT = "✅ Твоё ДЗ подтверждено";
 export const HOMEWORK_REJECTED_TEXT =
   "❌ Твоё ДЗ отклонено админом — осталось прежнее ДЗ";
+
+export const ADDITIONAL_APPROVED_TEXT =
+  "✅ Твоя запись в «Дополнительно» подтверждена";
+export const ADDITIONAL_REJECTED_TEXT =
+  "❌ Твоя запись в «Дополнительно» отклонена админом";
+
+/** Admin notice for an "Additional" entry saved while the AI was down. */
+export function adminAdditionalReviewMessage(
+  params: AdditionalReviewNotification
+): string {
+  return [
+    REVIEW_REASON_AI_DOWN,
+    authorLine(params.authorId, params.authorDisplay),
+    `📌 Дополнительно, ${DAY_LABELS[dayKeyFromDate(params.date)]}, ${formatDate(params.date)}`,
+    "",
+    "Новая запись:",
+    params.text,
+  ].join("\n");
+}

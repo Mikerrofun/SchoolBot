@@ -1,11 +1,17 @@
 import type { Bot } from "grammy";
 import { checkTextOnTopic } from "@/lib/ai";
-import { ERROR_REGISTRY } from "@/lib/errors";
+import { ERROR_REGISTRY, toBotError } from "@/lib/errors";
 import { parseDateKey } from "@/lib/weeks";
 import { upsertAdditional } from "@/services/additional.service";
+import { getUserByTelegramId } from "@/services/user.service";
 import type { MyContext } from "@/types";
 import { daysReplyKeyboard } from "../keyboards";
-import { ADDITIONAL_SAVED_TEXT } from "../messages";
+import {
+  ADDITIONAL_PENDING_AI_DOWN_TEXT,
+  ADDITIONAL_SAVED_TEXT,
+  formatUserDisplay,
+} from "../messages";
+import { notifyAdminsAdditionalReview } from "./admin";
 
 export function registerAdditionalHandlers(bot: Bot<MyContext>) {
   // Free text while an "additional" day is pending -> censor, then save.
@@ -22,17 +28,41 @@ export function registerAdditionalHandlers(bot: Bot<MyContext>) {
     const text = ctx.message.text.trim();
 
     // Censorship before anything is saved; a rejection creates nothing.
-    // When the AI is unavailable checkTextOnTopic throws AI_UNAVAILABLE —
-    // bot.catch answers the user and nothing is saved either.
-    const onTopic = await checkTextOnTopic(text);
-    if (!onTopic) {
-      await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
+    // When the AI is down the submission is neither lost nor approved
+    // blindly: it goes to pending moderation for admins.
+    let aiDown = false;
+    try {
+      const onTopic = await checkTextOnTopic(text);
+      if (!onTopic) {
+        await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
+          reply_markup: daysReplyKeyboard("ada"),
+        });
+        return;
+      }
+    } catch (error) {
+      if (toBotError(error).code !== "AI_UNAVAILABLE") throw error;
+      aiDown = true;
+    }
+
+    const authorId = String(ctx.from?.id ?? "");
+    const saved = await upsertAdditional(date, text, authorId, { aiDown });
+
+    if (aiDown) {
+      await ctx.reply(ADDITIONAL_PENDING_AI_DOWN_TEXT, {
         reply_markup: daysReplyKeyboard("ada"),
+      });
+      const user = await getUserByTelegramId(authorId);
+      await notifyAdminsAdditionalReview(bot, {
+        additionalId: saved.id,
+        reason: "ai_down",
+        authorId,
+        authorDisplay: user ? formatUserDisplay(user) : undefined,
+        date,
+        text,
       });
       return;
     }
 
-    await upsertAdditional(date, text, String(ctx.from?.id ?? ""));
     await ctx.reply(ADDITIONAL_SAVED_TEXT, {
       reply_markup: daysReplyKeyboard("ada"),
     });

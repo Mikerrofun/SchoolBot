@@ -60,8 +60,12 @@ export function lessonsReplyKeyboard(choices: LessonChoice[]): Keyboard {
 
 // ── Inline keyboards: admin review stays in messages ────────────────────────
 
-export function adminReviewKeyboard(homeworkId: number): InlineKeyboard {
+/** Approve/reject buttons; `kind` picks the callback prefix (hw:/ad:). */
+export function adminReviewKeyboard(
+  entryId: number,
+  kind: "hw" | "ad" = "hw"
+): InlineKeyboard {
   return new InlineKeyboard()
-    .text(BTN_APPROVE, `hw:approve:${homeworkId}`)
-    .text(BTN_REJECT, `hw:reject:${homeworkId}`);
+    .text(BTN_APPROVE, `${kind}:approve:${entryId}`)
+    .text(BTN_REJECT, `${kind}:reject:${entryId}`);
 }

@@ -61,19 +61,21 @@ export type SaveHomeworkParams = {
   lessonId: number;
   text: string;
   createdBy?: string;
+  /** Censorship AI was down — skip compare, send straight to moderation. */
+  censorshipAiDown?: boolean;
 };
 
 /**
- * Result when homework is created for the first time: there is no previous
- * text at all, so the result carries no `oldText` field whatsoever.
+ * Result when homework did not exist yet. Normally it is approved
+ * immediately; when the censorship AI was down it goes to PENDING instead
+ * (the approved `text` stays empty until an admin approves the submission).
  */
 export type SaveHomeworkCreated = {
   id: number;
-  action: "created";
+  action: "created" | "pending_ai_down";
   text: string;
-  aiUsed: false;
-  /** First-time homework is approved immediately. */
-  status: "APPROVED";
+  aiUsed: boolean;
+  status: HomeworkStatus;
 };
 
 /**
