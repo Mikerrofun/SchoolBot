@@ -1,6 +1,5 @@
 import type { Bot } from "grammy";
-import { checkTextOnTopic } from "@/lib/ai";
-import { ERROR_REGISTRY, toBotError } from "@/lib/errors";
+import { censorSubmission } from "../censorship";
 import { parseDateKey } from "@/lib/weeks";
 import { saveHomework } from "@/services/homework.service";
 import { getUserByTelegramId } from "@/services/user.service";
@@ -31,19 +30,8 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     // Censorship before anything is saved; a rejection creates nothing.
     // When the AI is down the submission is neither lost nor approved
     // blindly: it goes through the same pending moderation flow.
-    let censorshipAiDown = false;
-    try {
-      const onTopic = await checkTextOnTopic(ctx.message.text);
-      if (!onTopic) {
-        await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
-          reply_markup: daysReplyKeyboard("hwa"),
-        });
-        return;
-      }
-    } catch (error) {
-      if (toBotError(error).code !== "AI_UNAVAILABLE") throw error;
-      censorshipAiDown = true;
-    }
+    const censorship = await censorSubmission(ctx, ctx.message.text, "hwa");
+    if (!censorship.allowed) return;
 
     const authorId = String(ctx.from?.id ?? "");
 
@@ -51,7 +39,7 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
       lessonId: pending.lessonId,
       text: ctx.message.text,
       createdBy: authorId,
-      censorshipAiDown,
+      censorshipAiDown: censorship.aiDown,
     });
 
     if (result.status === "PENDING") {

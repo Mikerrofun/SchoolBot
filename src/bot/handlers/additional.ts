@@ -1,6 +1,5 @@
 import type { Bot } from "grammy";
-import { checkTextOnTopic } from "@/lib/ai";
-import { ERROR_REGISTRY, toBotError } from "@/lib/errors";
+import { censorSubmission } from "../censorship";
 import { parseDateKey } from "@/lib/weeks";
 import { upsertAdditional } from "@/services/additional.service";
 import { getUserByTelegramId } from "@/services/user.service";
@@ -30,24 +29,15 @@ export function registerAdditionalHandlers(bot: Bot<MyContext>) {
     // Censorship before anything is saved; a rejection creates nothing.
     // When the AI is down the submission is neither lost nor approved
     // blindly: it goes to pending moderation for admins.
-    let aiDown = false;
-    try {
-      const onTopic = await checkTextOnTopic(text);
-      if (!onTopic) {
-        await ctx.reply(ERROR_REGISTRY.CONTENT_REJECTED, {
-          reply_markup: daysReplyKeyboard("ada"),
-        });
-        return;
-      }
-    } catch (error) {
-      if (toBotError(error).code !== "AI_UNAVAILABLE") throw error;
-      aiDown = true;
-    }
+    const censorship = await censorSubmission(ctx, text, "ada");
+    if (!censorship.allowed) return;
 
     const authorId = String(ctx.from?.id ?? "");
-    const saved = await upsertAdditional(date, text, authorId, { aiDown });
+    const saved = await upsertAdditional(date, text, authorId, {
+      aiDown: censorship.aiDown,
+    });
 
-    if (aiDown) {
+    if (censorship.aiDown) {
       await ctx.reply(ADDITIONAL_PENDING_AI_DOWN_TEXT, {
         reply_markup: daysReplyKeyboard("ada"),
       });
