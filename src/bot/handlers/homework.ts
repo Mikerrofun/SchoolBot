@@ -24,7 +24,6 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     if (!pending || pending.type !== "lesson") return;
 
     ctx.session.pending = undefined;
-    // The lessons reply keyboard is replaced by the day picker below.
     ctx.session.lessonChoices = undefined;
 
     // Censorship before anything is saved; a rejection creates nothing.
