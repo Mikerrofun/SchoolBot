@@ -14,9 +14,12 @@ import { notifyAdminsAdditionalReview } from "./admin";
 
 export function registerAdditionalHandlers(bot: Bot<MyContext>) {
   // Free text while an "additional" day is pending -> censor, then save.
-  bot.on("message:text", async (ctx) => {
+  bot.on("message:text", async (ctx, next) => {
     const pending = ctx.session.pending;
-    if (!pending || pending.type !== "additional") return;
+    if (!pending || pending.type !== "additional") {
+      await next(); // Не наш случай - передаём дальше
+      return;
+    }
 
     ctx.session.pending = undefined;
     ctx.session.lessonChoices = undefined;

@@ -22,12 +22,16 @@ export function getBot(): Bot<MyContext> {
 
   // The reply-keyboard text router runs first: navigation presses cancel any
   // pending free-text input before the flow handlers see the message.
+  console.log("🔧 [INIT] Регистрация handlers...");
   registerStartHandler(bot);
   registerNavigationHandlers(bot);
   registerScheduleHandlers(bot);
+  console.log("🔧 [INIT] Вызываем registerHomeworkHandlers...");
   registerHomeworkHandlers(bot);
+  console.log("🔧 [INIT] registerHomeworkHandlers завершён");
   registerAdditionalHandlers(bot);
   registerAdminHandlers(bot);
+  console.log("🔧 [INIT] Все handlers зарегистрированы");
 
   bot.catch(async (err) => {
     const botError = toBotError(err.error);

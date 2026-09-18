@@ -24,6 +24,7 @@ export async function saveHomework(
   const { lessonId, text, createdBy, censorshipAiDown } = params;
   const trimmed = text.trim();
 
+  console.log("💾 [HOMEWORK_SERVICE] Сохранение ДЗ для урока:", lessonId);
   const existing = await prisma.homework.findUnique({ where: { lessonId } });
 
   // Censorship AI was down: the verdict is unknown, so the submission must
@@ -32,6 +33,7 @@ export async function saveHomework(
   // entry stores an empty approved text so students see nothing until an
   // admin approves.
   if (censorshipAiDown) {
+    console.log("⚠️ [HOMEWORK_SERVICE] AI цензуры не работал - сохранение в pending");
     const saved = existing
       ? await prisma.homework.update({
           where: { lessonId },
@@ -50,6 +52,7 @@ export async function saveHomework(
             status: "PENDING",
           },
         });
+    console.log("✅ [HOMEWORK_SERVICE] Сохранено в pending, ID:", saved.id);
     return existing
       ? {
           id: saved.id,
@@ -69,10 +72,11 @@ export async function saveHomework(
   }
 
   if (!existing) {
+    console.log("➕ [HOMEWORK_SERVICE] Новое ДЗ (первое для этого урока)");
     const created = await prisma.homework.create({
       data: { lessonId, text: trimmed, createdBy },
     });
-    // First-time homework: there is no old text, so the result carries none.
+    console.log("✅ [HOMEWORK_SERVICE] Создано новое ДЗ, ID:", created.id);
     return {
       id: created.id,
       action: "created",
@@ -82,14 +86,17 @@ export async function saveHomework(
     };
   }
 
+  console.log("🔄 [HOMEWORK_SERVICE] ДЗ уже существует, запрос AI для сравнения...");
   const comparison = await compareHomework(existing.text, trimmed);
 
   if (comparison?.same) {
     if (comparison.betterText && comparison.betterText !== existing.text) {
+      console.log("📝 [HOMEWORK_SERVICE] AI предложил улучшенный текст, обновление...");
       const updated = await prisma.homework.update({
         where: { lessonId },
         data: { text: comparison.betterText, createdBy, status: "APPROVED" },
       });
+      console.log("✅ [HOMEWORK_SERVICE] ДЗ обновлено улучшенным текстом");
       return {
         id: updated.id,
         action: "updated",
@@ -99,6 +106,7 @@ export async function saveHomework(
         status: updated.status,
       };
     }
+    console.log("✅ [HOMEWORK_SERVICE] ДЗ идентично, изменений не требуется");
     return {
       id: existing.id,
       action: "kept",
@@ -113,6 +121,7 @@ export async function saveHomework(
   // waits in `pendingText` for admin review; the approved `text` stays
   // visible to students in the meantime. A repeated submission while still
   // pending simply overwrites `pendingText` (last version wins).
+  console.log("⚠️ [HOMEWORK_SERVICE] Разные задания или AI недоступен - отправка на модерацию");
   const updated = await prisma.homework.update({
     where: { lessonId },
     data: {
@@ -121,6 +130,7 @@ export async function saveHomework(
       status: "PENDING",
     },
   });
+  console.log("✅ [HOMEWORK_SERVICE] Сохранено в pending для модерации, ID:", updated.id);
   return {
     id: updated.id,
     action: comparison ? "updated" : "pending_ai_down",

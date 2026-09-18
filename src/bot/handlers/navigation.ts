@@ -111,27 +111,66 @@ export async function showSchedule(ctx: MyContext): Promise<void> {
 }
 
 export function registerNavigationHandlers(bot: Bot<MyContext>) {
-  bot.on("message:text", async (ctx) => {
+  bot.on("message:text", async (ctx, next) => {
     const text = ctx.message.text;
+    
+    console.log("🧭 [NAVIGATION] Получено сообщение:", text.substring(0, 50));
 
-    if (text === BTN_MENU) return showMainMenu(ctx);
-    if (text === BTN_SCHEDULE) return showSchedule(ctx);
-    if (text === BTN_HOMEWORK_VIEW) return startFlow(ctx, "hwv");
-    if (text === BTN_HOMEWORK_ADD) return startFlow(ctx, "hwa");
-    if (text === BTN_ADDITIONAL_VIEW) return startFlow(ctx, "adv");
-    if (text === BTN_ADDITIONAL_ADD) return startAdditionalEdit(ctx);
+    if (text === BTN_MENU) {
+      await showMainMenu(ctx);
+      return; // Обработано - не передаём дальше
+    }
+    if (text === BTN_SCHEDULE) {
+      await showSchedule(ctx);
+      return;
+    }
+    if (text === BTN_HOMEWORK_VIEW) {
+      await startFlow(ctx, "hwv");
+      return;
+    }
+    if (text === BTN_HOMEWORK_ADD) {
+      await startFlow(ctx, "hwa");
+      return;
+    }
+    if (text === BTN_ADDITIONAL_VIEW) {
+      await startFlow(ctx, "adv");
+      return;
+    }
+    if (text === BTN_ADDITIONAL_ADD) {
+      await startAdditionalEdit(ctx);
+      return;
+    }
 
-    if (text === BTN_WEEKS) return handleWeeksButton(ctx);
-    if (text === BTN_DAYS) return handleDaysButton(ctx);
+    if (text === BTN_WEEKS) {
+      await handleWeeksButton(ctx);
+      return;
+    }
+    if (text === BTN_DAYS) {
+      await handleDaysButton(ctx);
+      return;
+    }
 
     const weekOffset = WEEK_BY_LABEL.get(text);
-    if (weekOffset !== undefined) return handleWeek(ctx, weekOffset);
+    if (weekOffset !== undefined) {
+      await handleWeek(ctx, weekOffset);
+      return;
+    }
 
     const day = DAY_BY_LABEL.get(text);
-    if (day) return handleDay(ctx, day);
+    if (day) {
+      await handleDay(ctx, day);
+      return;
+    }
 
     const choice = ctx.session.lessonChoices?.find((c) => c.label === text);
-    if (choice) return handleLessonChoice(ctx, choice);
+    if (choice) {
+      await handleLessonChoice(ctx, choice);
+      return;
+    }
+    
+    // Не обработано навигацией - передаём следующему handler
+    console.log("➡️ [NAVIGATION] Не является командой навигации, передаём дальше");
+    await next(); // КРИТИЧЕСКИ ВАЖНО!
   });
 }
 
@@ -272,6 +311,7 @@ async function handleLessonChoice(
     subject: choice.subject,
     dateKey: choice.dateKey,
   };
+  console.log("✏️ [NAVIGATION] Урок выбран, установлен pending:", ctx.session.pending);
   await ctx.reply(homeworkInputPrompt(choice.subject, date));
 }
 
