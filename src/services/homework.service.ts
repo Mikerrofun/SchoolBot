@@ -2,7 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { compareHomework } from "@/lib/ai";
 import type {
   DayHomework,
+  DayHomeworkOptions,
   HomeworkWithLesson,
+  SaveHomeworkParams,
   SaveHomeworkResult,
 } from "@/types";
 
@@ -16,27 +18,67 @@ import type {
  * is unknown, so the submission goes through the same pending flow — admins
  * get an "AI down" notice instead of the usual one.
  */
-export async function saveHomework(params: {
-  lessonId: number;
-  text: string;
-  createdBy?: string;
-}): Promise<SaveHomeworkResult> {
-  const { lessonId, text, createdBy } = params;
+export async function saveHomework(
+  params: SaveHomeworkParams
+): Promise<SaveHomeworkResult> {
+  const { lessonId, text, createdBy, censorshipAiDown } = params;
   const trimmed = text.trim();
 
   const existing = await prisma.homework.findUnique({ where: { lessonId } });
+
+  // Censorship AI was down: the verdict is unknown, so the submission must
+  // not be approved automatically. It waits in `pendingText` for admin
+  // review — the same flow as an "AI down" compare verdict. A first-time
+  // entry stores an empty approved text so students see nothing until an
+  // admin approves.
+  if (censorshipAiDown) {
+    const saved = existing
+      ? await prisma.homework.update({
+          where: { lessonId },
+          data: {
+            pendingText: trimmed,
+            pendingCreatedBy: createdBy,
+            status: "PENDING",
+          },
+        })
+      : await prisma.homework.create({
+          data: {
+            lessonId,
+            text: "",
+            pendingText: trimmed,
+            pendingCreatedBy: createdBy,
+            status: "PENDING",
+          },
+        });
+    return existing
+      ? {
+          id: saved.id,
+          action: "pending_ai_down",
+          text: trimmed,
+          oldText: existing.text,
+          aiUsed: false,
+          status: "PENDING",
+        }
+      : {
+          id: saved.id,
+          action: "pending_ai_down",
+          text: trimmed,
+          aiUsed: false,
+          status: "PENDING",
+        };
+  }
 
   if (!existing) {
     const created = await prisma.homework.create({
       data: { lessonId, text: trimmed, createdBy },
     });
+    // First-time homework: there is no old text, so the result carries none.
     return {
       id: created.id,
       action: "created",
       text: created.text,
-      oldText: null,
       aiUsed: false,
-      status: created.status,
+      status: "APPROVED",
     };
   }
 
@@ -100,7 +142,7 @@ export async function getHomeworkByLesson(lessonId: number) {
  */
 export async function getDayHomework(
   date: Date,
-  opts: { includePending?: boolean } = {}
+  opts: DayHomeworkOptions = {}
 ): Promise<DayHomework> {
   const [lessons, additional] = await Promise.all([
     prisma.lesson.findMany({
@@ -122,7 +164,7 @@ export async function getDayHomework(
           ? lesson.homework
           : null,
     })),
-    additional: additional?.text ?? null,
+    additional: additional?.text || null,
   };
 }
 

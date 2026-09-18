@@ -1,32 +1,45 @@
 import { z } from "zod";
+import { BotError } from "@/lib/errors";
+import type { ComparisonResult } from "@/types";
 
-// AI is optional: if OpenRouter is unavailable the bot keeps working
-// and homework is saved without deduplication.
+// compareHomework is optional: if OpenRouter is unavailable it returns null
+// ("verdict unknown") and the submission goes to pending moderation.
+// Censorship (checkTextOnTopic) is fail-closed: it never returns an unknown
+// verdict — it throws AI_UNAVAILABLE, so nothing is ever saved unchecked.
 
 const comparisonResultSchema = z.object({
   same: z.boolean(),
   betterText: z.string().optional(),
 });
 
-export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
+const onTopicVerdictSchema = z.object({
+  onTopic: z.boolean(),
+});
 
-const SYSTEM_PROMPT = `Ты помощник, который сравнивает формулировки домашнего задания школьников.
+const COMPARE_SYSTEM_PROMPT = `Ты помощник, который сравнивает формулировки домашнего задания школьников.
 Тебе дают два текста ДЗ по одному и тому же уроку. Определи, это одно и то же задание или разные.
 Если это одно и то же задание, но новая формулировка точнее или полнее — верни улучшенный текст.
 Если задания разные — same=false и betterText не нужен.
 Ответь строго JSON: {"same": boolean, "betterText": string | undefined}`;
 
-export async function compareHomework(
-  existing: string,
-  incoming: string
-): Promise<ComparisonResult | null> {
+const ON_TOPIC_SYSTEM_PROMPT = `Ты фильтр записей школьного бота. Ученик хочет сохранить текст как домашнее задание или заметку.
+Определи, похож ли текст на осмысленную запись по делу: домашнее задание, напоминание о задании, примечание к уроку.
+Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, случайные буквы или цифры.
+Ответь строго JSON: {"onTopic": boolean}`;
+
+/** One JSON-structured OpenRouter chat call; null on any failure. */
+async function callOpenRouterJson<T>(
+  systemPrompt: string,
+  userContent: string,
+  schema: z.ZodType<T>
+): Promise<T | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
+  try {
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -41,17 +54,12 @@ export async function compareHomework(
           temperature: 0,
           response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
-            },
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
           ],
         }),
       }
     );
-    clearTimeout(timeout);
-
     if (!response.ok) return null;
 
     const data = (await response.json()) as {
@@ -60,15 +68,47 @@ export async function compareHomework(
     const content = data.choices?.[0]?.message?.content;
     if (!content) return null;
 
-    const parsed = comparisonResultSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) return null;
-
-    // A "same" result only makes sense with a replacement text when one is given.
-    if (parsed.data.same && !parsed.data.betterText) {
-      return { same: true };
-    }
-    return parsed.data;
+    const parsed = schema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+export async function compareHomework(
+  existing: string,
+  incoming: string
+): Promise<ComparisonResult | null> {
+  const result = await callOpenRouterJson(
+    COMPARE_SYSTEM_PROMPT,
+    `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
+    comparisonResultSchema
+  );
+  if (!result) return null;
+
+  // A "same" result only makes sense with a replacement text when one is given.
+  if (result.same && !result.betterText) {
+    return { same: true };
+  }
+  return result;
+}
+
+/**
+ * Censorship filter: does the text look like a legitimate homework / note
+ * entry (as opposed to spam, profanity, nonsense). Returns true (allow) or
+ * false (garbage — reject the entry). Throws AI_UNAVAILABLE when no verdict
+ * can be obtained (no API key, OpenRouter down, timeout, unparseable
+ * answer) — callers send the submission to pending moderation instead of
+ * approving or rejecting it blindly.
+ */
+export async function checkTextOnTopic(text: string): Promise<boolean> {
+  const verdict = await callOpenRouterJson(
+    ON_TOPIC_SYSTEM_PROMPT,
+    `Текст записи:\n${text}`,
+    onTopicVerdictSchema
+  );
+  if (!verdict) throw new BotError("AI_UNAVAILABLE");
+  return verdict.onTopic;
 }

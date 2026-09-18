@@ -48,12 +48,29 @@ model Homework {
 }
 
 // Virtual sixth section: one entry per weekday (Mon–Fri), stored by date
-// because its content changes from week to week. Saved without admin approval.
+// because its content changes from week to week. Normally saved without
+// admin approval; a submission made while the AI was down goes to
+// `pendingText` and waits for admin approval like homework does.
 model AdditionalHomework {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @unique @db.Date
-  text      String
-  authorId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              Int            @id @default(autoincrement())
+  date            DateTime       @unique @db.Date
+  text            String
+  pendingText     String?
+  pendingAuthorId String?
+  status          HomeworkStatus @default(APPROVED)
+  authorId        String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+// Class members known to the bot. Written on /start only (upsert refreshes
+// username/nickname); used to show a human-readable author in admin notices.
+model User {
+  id           Int      @id @default(autoincrement())
+  telegramId   String   @unique
+  username     String?
+  firstName    String?
+  lastName     String?
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

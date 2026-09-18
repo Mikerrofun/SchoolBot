@@ -1,82 +1,59 @@
 import type { Bot } from "grammy";
+import { censorSubmission } from "../censorship";
+import { parseDateKey } from "@/lib/weeks";
+import { upsertAdditional } from "@/services/additional.service";
+import { getUserByTelegramId } from "@/services/user.service";
 import type { MyContext } from "@/types";
-import { getWeekWindow, parseDateKey, weekDates } from "@/lib/weeks";
-import type { WeekOffset } from "@/types";
-import { getAdditionalForWeek, upsertAdditional } from "@/services/additional.service";
-import { simpleDayKeyboard, weekKeyboard } from "../keyboards";
+import { daysReplyKeyboard } from "../keyboards";
 import {
-  ADDITIONAL_ADD_PICK_TEXT,
+  ADDITIONAL_PENDING_AI_DOWN_TEXT,
   ADDITIONAL_SAVED_TEXT,
-  ADDITIONAL_VIEW_PICK_TEXT,
-  additionalInputPrompt,
-  additionalWeekMessage,
+  formatUserDisplay,
 } from "../messages";
+import { notifyAdminsAdditionalReview } from "./admin";
 
 export function registerAdditionalHandlers(bot: Bot<MyContext>) {
-  // ── View: week -> one message with all five days ─────────────────────────
-
-  bot.callbackQuery("adv:pick", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText(ADDITIONAL_VIEW_PICK_TEXT, {
-      reply_markup: weekKeyboard("adv"),
-    });
-  });
-
-  bot.callbackQuery(/^adv:w:(-1|0|1)$/, showAdditionalWeek);
-  // "Дополнительно" shortcut from the homework view day picker.
-  bot.callbackQuery(/^hwv:extra:(-1|0|1)$/, showAdditionalWeek);
-
-  // ── Edit: week -> day -> free text, saved immediately ────────────────────
-
-  bot.callbackQuery("ada:pick", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText(ADDITIONAL_ADD_PICK_TEXT, {
-      reply_markup: weekKeyboard("ada"),
-    });
-  });
-
-  bot.callbackQuery(/^ada:w:(-1|0|1)$/, showAdditionalDays);
-  // "Дополнительно" shortcut from the homework add day picker.
-  bot.callbackQuery(/^hwa:extra:(-1|0|1)$/, showAdditionalDays);
-
-  bot.callbackQuery(/^ada:d:(-1|0|1):(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const [, , dayDateKey] = ctx.match!;
-    const date = parseDateKey(dayDateKey);
-    if (!date) return;
-
-    ctx.session.pending = { type: "additional", dateKey: dayDateKey };
-    await ctx.reply(additionalInputPrompt(date));
-  });
-
-  // Free text while an "additional" day is pending -> save immediately.
+  // Free text while an "additional" day is pending -> censor, then save.
   bot.on("message:text", async (ctx) => {
     const pending = ctx.session.pending;
     if (!pending || pending.type !== "additional") return;
 
     ctx.session.pending = undefined;
+    ctx.session.lessonChoices = undefined;
 
     const date = parseDateKey(pending.dateKey);
     if (!date) return;
 
-    await upsertAdditional(date, ctx.message.text.trim(), String(ctx.from?.id ?? ""));
-    await ctx.reply(ADDITIONAL_SAVED_TEXT);
-  });
-}
+    const text = ctx.message.text.trim();
 
-async function showAdditionalWeek(ctx: MyContext) {
-  await ctx.answerCallbackQuery();
-  const offset = Number((ctx.match as RegExpMatchArray)[1]) as WeekOffset;
-  const rows = await getAdditionalForWeek(getWeekWindow(offset));
-  await ctx.editMessageText(additionalWeekMessage(offset, rows), {
-    reply_markup: weekKeyboard("adv"),
-  });
-}
+    // Censorship before anything is saved; a rejection creates nothing.
+    // "moderation" means the AI is down: the submission is neither lost
+    // nor published unchecked — it goes to pending moderation for admins.
+    const verdict = await censorSubmission(ctx, text, "ada");
+    if (verdict.outcome === "rejected") return;
 
-async function showAdditionalDays(ctx: MyContext) {
-  await ctx.answerCallbackQuery();
-  const offset = Number((ctx.match as RegExpMatchArray)[1]) as WeekOffset;
-  await ctx.editMessageText(ADDITIONAL_ADD_PICK_TEXT, {
-    reply_markup: simpleDayKeyboard("ada", offset, weekDates(offset)),
+    const aiDown = verdict.outcome === "moderation";
+    const authorId = String(ctx.from?.id ?? "");
+    const saved = await upsertAdditional(date, text, authorId, { aiDown });
+
+    if (aiDown) {
+      await ctx.reply(ADDITIONAL_PENDING_AI_DOWN_TEXT, {
+        reply_markup: daysReplyKeyboard("ada"),
+      });
+      const user = await getUserByTelegramId(authorId);
+      await notifyAdminsAdditionalReview(bot, {
+        additionalId: saved.id,
+        reason: "ai_down",
+        authorId,
+        authorDisplay: user ? formatUserDisplay(user) : undefined,
+        date,
+        text,
+      });
+      return;
+    }
+
+    await ctx.reply(ADDITIONAL_SAVED_TEXT, {
+      reply_markup: daysReplyKeyboard("ada"),
+    });
   });
 }
