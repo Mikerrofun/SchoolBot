@@ -28,10 +28,10 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
     ctx.session.lessonChoices = undefined;
 
     // Censorship before anything is saved; a rejection creates nothing.
-    // When the AI is down the submission is neither lost nor approved
-    // blindly: it goes through the same pending moderation flow.
-    const censorship = await censorSubmission(ctx, ctx.message.text, "hwa");
-    if (!censorship.allowed) return;
+    // "moderation" means the AI is down: the submission is neither lost
+    // nor published unchecked — it goes to the pending moderation flow.
+    const verdict = await censorSubmission(ctx, ctx.message.text, "hwa");
+    if (verdict.outcome === "rejected") return;
 
     const authorId = String(ctx.from?.id ?? "");
 
@@ -39,7 +39,7 @@ export function registerHomeworkHandlers(bot: Bot<MyContext>) {
       lessonId: pending.lessonId,
       text: ctx.message.text,
       createdBy: authorId,
-      censorshipAiDown: censorship.aiDown,
+      censorshipAiDown: verdict.outcome === "moderation",
     });
 
     if (result.status === "PENDING") {

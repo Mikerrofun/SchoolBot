@@ -27,17 +27,16 @@ export function registerAdditionalHandlers(bot: Bot<MyContext>) {
     const text = ctx.message.text.trim();
 
     // Censorship before anything is saved; a rejection creates nothing.
-    // When the AI is down the submission is neither lost nor approved
-    // blindly: it goes to pending moderation for admins.
-    const censorship = await censorSubmission(ctx, text, "ada");
-    if (!censorship.allowed) return;
+    // "moderation" means the AI is down: the submission is neither lost
+    // nor published unchecked — it goes to pending moderation for admins.
+    const verdict = await censorSubmission(ctx, text, "ada");
+    if (verdict.outcome === "rejected") return;
 
+    const aiDown = verdict.outcome === "moderation";
     const authorId = String(ctx.from?.id ?? "");
-    const saved = await upsertAdditional(date, text, authorId, {
-      aiDown: censorship.aiDown,
-    });
+    const saved = await upsertAdditional(date, text, authorId, { aiDown });
 
-    if (censorship.aiDown) {
+    if (aiDown) {
       await ctx.reply(ADDITIONAL_PENDING_AI_DOWN_TEXT, {
         reply_markup: daysReplyKeyboard("ada"),
       });
