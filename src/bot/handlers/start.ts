@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { upsertUserFromTelegram } from "@/services/user.service";
 import type { MyContext } from "@/types";
+import { START_TEXT } from "../messages";
 import { showMainMenu } from "./navigation";
 
 export function registerStartHandler(bot: Bot<MyContext>) {
@@ -15,14 +16,9 @@ export function registerStartHandler(bot: Bot<MyContext>) {
         lastName: ctx.from.last_name ?? null,
       });
     }
-    await showMainMenu(ctx);
-  });
-
-  bot.command("menu", (ctx) => showMainMenu(ctx));
-
-  // The inline « Меню button (lesson picker) — navigation itself is reply now.
-  bot.callbackQuery("menu", async (ctx) => {
-    await ctx.answerCallbackQuery();
+    // Send welcome message first
+    await ctx.reply(START_TEXT);
+    // Then show main menu keyboard (resets session state)
     await showMainMenu(ctx);
   });
 }

@@ -47,7 +47,6 @@ import {
   HOMEWORK_ADD_TITLE_PREFIX,
   HOMEWORK_VIEW_PICK_TEXT,
   HOMEWORK_VIEW_TITLE_PREFIX,
-  MENU_TEXT,
   NO_LESSONS_TEXT,
   PICK_DAY_TEXT,
   PICK_LESSON_TEXT,
@@ -77,13 +76,14 @@ const DAY_BY_LABEL = new Map<string, DayKey>(
   Object.entries(DAY_SHORT_LABELS).map(([day, label]) => [label, day as DayKey])
 );
 
-/** Shows the main menu and resets navigation state. */
+/** Resets navigation state and shows main menu keyboard (no message sent). */
 export async function showMainMenu(ctx: MyContext): Promise<void> {
   ctx.session.pending = undefined;
   ctx.session.flow = undefined;
   ctx.session.weekOffset = undefined;
   ctx.session.lessonChoices = undefined;
-  await ctx.reply(MENU_TEXT, { reply_markup: mainMenuReplyKeyboard() });
+  // Update keyboard by sending minimal message
+  await ctx.reply("Main menu:", { reply_markup: mainMenuReplyKeyboard() });
 }
 
 /** Enters a flow: shows its week picker and remembers the flow. */
@@ -113,12 +113,10 @@ export async function showSchedule(ctx: MyContext): Promise<void> {
 export function registerNavigationHandlers(bot: Bot<MyContext>) {
   bot.on("message:text", async (ctx, next) => {
     const text = ctx.message.text;
-    
-    console.log("🧭 [NAVIGATION] Получено сообщение:", text.substring(0, 50));
 
     if (text === BTN_MENU) {
       await showMainMenu(ctx);
-      return; // Обработано - не передаём дальше
+      return;
     }
     if (text === BTN_SCHEDULE) {
       await showSchedule(ctx);
@@ -167,10 +165,9 @@ export function registerNavigationHandlers(bot: Bot<MyContext>) {
       await handleLessonChoice(ctx, choice);
       return;
     }
-    
-    // Не обработано навигацией - передаём следующему handler
-    console.log("➡️ [NAVIGATION] Не является командой навигации, передаём дальше");
-    await next(); // КРИТИЧЕСКИ ВАЖНО!
+
+    // Not a navigation command - pass to next handler
+    await next();
   });
 }
 
@@ -311,7 +308,6 @@ async function handleLessonChoice(
     subject: choice.subject,
     dateKey: choice.dateKey,
   };
-  console.log("✏️ [NAVIGATION] Урок выбран, установлен pending:", ctx.session.pending);
   await ctx.reply(homeworkInputPrompt(choice.subject, date));
 }
 

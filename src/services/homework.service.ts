@@ -71,16 +71,24 @@ export async function saveHomework(
         };
   }
 
-  if (!existing) {
-    console.log("➕ [HOMEWORK_SERVICE] Новое ДЗ (первое для этого урока)");
-    const created = await prisma.homework.create({
-      data: { lessonId, text: trimmed, createdBy },
-    });
-    console.log("✅ [HOMEWORK_SERVICE] Создано новое ДЗ, ID:", created.id);
+  // Treat empty existing text as "no homework" - first submission
+  const hasExistingHomework = existing && existing.text.trim() !== "";
+
+  if (!hasExistingHomework) {
+    console.log("➕ [HOMEWORK_SERVICE] Новое ДЗ (первое для этого урока или старое было пустым)");
+    const saved = existing
+      ? await prisma.homework.update({
+          where: { lessonId },
+          data: { text: trimmed, createdBy, status: "APPROVED" },
+        })
+      : await prisma.homework.create({
+          data: { lessonId, text: trimmed, createdBy },
+        });
+    console.log("✅ [HOMEWORK_SERVICE] Создано/обновлено ДЗ, ID:", saved.id);
     return {
-      id: created.id,
+      id: saved.id,
       action: "created",
-      text: created.text,
+      text: saved.text,
       aiUsed: false,
       status: "APPROVED",
     };
