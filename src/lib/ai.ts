@@ -40,42 +40,21 @@ async function callOpenRouterJson<T>(
   systemPrompt: string,
   userContent: string,
   schema: z.ZodType<T>,
-  timeoutMs: number = 20_000 // По умолчанию 20 секунд
+  timeoutMs: number = 20_000
 ): Promise<T | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    console.error("❌ [AI] OPENROUTER_API_KEY не найден в .env");
+    console.error("❌ [AI] OPENROUTER_API_KEY не найден");
     return null;
   }
 
-  console.log(`🚀 [AI] Отправка запроса (timeout: ${timeoutMs}ms)`);
-  console.log(`📤 [AI] User content: ${userContent.substring(0, 100)}...`);
-
   const controller = new AbortController();
   const timeout = setTimeout(() => {
-    console.warn(`⏰ [AI] Timeout ${timeoutMs}ms истёк, прерываем запрос`);
+    console.warn(`⏰ [AI] Timeout ${timeoutMs}ms`);
     controller.abort();
   }, timeoutMs);
 
   try {
-    const requestBody = {
-      model: "openrouter/auto",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      route: "fallback",
-      models: [
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "deepseek/deepseek-v4-flash-0731:free",
-        "qwen/qwen3.8-27b:free"
-      ],
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    };
-
-    console.log(`📨 [AI] Request body:`, JSON.stringify(requestBody, null, 2));
-
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -85,43 +64,47 @@ async function callOpenRouterJson<T>(
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          model: "openrouter/auto",
+          temperature: 0,
+          response_format: { type: "json_object" },
+          route: "fallback",
+          models: [
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "deepseek/deepseek-v4-flash-0731:free",
+            "qwen/qwen3.8-27b:free"
+          ],
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+        }),
       }
     );
     
-    console.log(`📥 [AI] Получен ответ, статус: ${response.status}`);
-    
-    // Clear the timeout now that we have a response
-    // (parsing JSON should be fast, no need for 30s timeout)
     clearTimeout(timeout);
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("❌ [AI] Ошибка от OpenRouter:", response.status, errorText);
+      console.error("❌ [AI] Ошибка OpenRouter:", response.status, errorText);
       return null;
     }
 
-    // Проверяем, не был ли запрос уже прерван
     if (controller.signal.aborted) {
-      console.error("❌ [AI] Запрос был прерван по таймауту");
+      console.error("❌ [AI] Запрос прерван по таймауту");
       return null;
     }
     
-    // Parse JSON with the same abort signal
     const data = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
     };
     
-    console.log(`📦 [AI] Полный ответ:`, JSON.stringify(data, null, 2));
-    
     const content = data.choices?.[0]?.message?.content;
     
     if (!content) {
-      console.error("❌ [AI] Пустой ответ от модели");
+      console.error("❌ [AI] Пустой ответ");
       return null;
     }
-
-    console.log(`📝 [AI] Content:`, content);
 
     // Извлекаем JSON из markdown если есть
     let jsonText = content.trim();
@@ -135,23 +118,22 @@ async function callOpenRouterJson<T>(
       parsedJson = JSON.parse(jsonText);
     } catch (parseError) {
       // Try to fix common AI mistakes
-      // Example: {"same":{ "value": false } -> {"same": false}
       const fixedJson = jsonText
-        .replace(/:\s*\{\s*"value":\s*(\w+)\s*\}/g, ': $1') // Fix {"value": X} -> X
-        .replace(/,\s*\}/g, '}'); // Remove trailing commas
+        .replace(/:\s*\{\s*"value":\s*(\w+)\s*\}/g, ': $1')
+        .replace(/,\s*\}/g, '}');
       
       try {
         parsedJson = JSON.parse(fixedJson);
-        console.log("✅ [AI] JSON исправлен автоматически");
+        console.log("✅ [AI] JSON исправлен");
       } catch (retryError) {
-        console.error("❌ [AI] Ошибка парсинга JSON. Ответ:", content);
+        console.error("❌ [AI] Ошибка парсинга JSON:", content.substring(0, 100));
         return null;
       }
     }
 
     const parsed = schema.safeParse(parsedJson);
     if (!parsed.success) {
-      console.error("❌ [AI] Ошибка валидации:", parsed.error.errors);
+      console.error("❌ [AI] Валидация не прошла:", parsed.error.errors);
       return null;
     }
     
@@ -159,10 +141,10 @@ async function callOpenRouterJson<T>(
   } catch (error) {
     clearTimeout(timeout);
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error("⏱️ [AI] Запрос прерван по таймауту");
+      console.error("⏱️ [AI] Прервано по таймауту");
       return null;
     }
-    console.error("❌ [AI] Исключение при вызове API:", error);
+    console.error("❌ [AI] Исключение:", error);
     return null;
   }
 }
