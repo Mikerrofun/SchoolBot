@@ -51,7 +51,6 @@ async function callOpenRouterJson<T>(
   }, timeoutMs);
 
   try {
-    console.log("🤖 [AI] Отправка запроса к OpenRouter...");
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -79,53 +78,56 @@ async function callOpenRouterJson<T>(
       }
     );
     
-    console.log("📡 [AI] Статус ответа:", response.status, response.statusText);
-    
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("❌ [AI] Ошибка от OpenRouter:", errorText);
+      console.error("❌ [AI] Ошибка от OpenRouter:", response.status, errorText);
       return null;
     }
 
+    // Проверяем, не был ли запрос уже прерван
+    if (controller.signal.aborted) {
+      console.error("❌ [AI] Запрос был прерван по таймауту");
+      return null;
+    }
+    
     const data = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
     };
+    
     const content = data.choices?.[0]?.message?.content;
     
     if (!content) {
-      console.error("❌ [AI] Пустой ответ от модели");
+      console.error("❌ [AI] Пустой ответ от модели:", JSON.stringify(data, null, 2));
       return null;
     }
-
-    console.log("✅ [AI] Получен ответ:", content.substring(0, 200) + "...");
 
     // Извлекаем JSON из markdown если есть
     let jsonText = content.trim();
     const jsonMatch = jsonText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch) {
       jsonText = jsonMatch[1];
-      console.log("📝 [AI] Извлечён JSON из markdown");
     }
 
     let parsedJson;
     try {
       parsedJson = JSON.parse(jsonText);
     } catch (parseError) {
-      console.error("❌ [AI] Ошибка парсинга JSON:", parseError);
-      console.error("Полученный текст:", content);
+      console.error("❌ [AI] Ошибка парсинга JSON. Ответ:", content);
       return null;
     }
 
     const parsed = schema.safeParse(parsedJson);
     if (!parsed.success) {
-      console.error("❌ [AI] Ошибка валидации схемы:", parsed.error);
-      console.error("Полученный JSON:", parsedJson);
+      console.error("❌ [AI] Ошибка валидации:", parsed.error.errors);
       return null;
     }
     
-    console.log("✅ [AI] Ответ успешно обработан");
     return parsed.data;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error("⏱️ [AI] Запрос прерван по таймауту");
+      return null;
+    }
     console.error("❌ [AI] Исключение при вызове API:", error);
     return null;
   } finally {
@@ -137,41 +139,33 @@ export async function compareHomework(
   existing: string,
   incoming: string
 ): Promise<ComparisonResult | null> {
-  console.log("🔄 [AI] Сравнение домашних заданий...");
-  // Сравнение может быть быстрым - даём 10 секунд
   const result = await callOpenRouterJson(
     COMPARE_SYSTEM_PROMPT,
     `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
     comparisonResultSchema,
-    10_000 // 10 секунд для сравнения
+    10_000
   );
   if (!result) {
-    console.log("⚠️ [AI] Не удалось сравнить ДЗ (AI недоступен)");
+    console.log("⚠️ [AI] Не удалось сравнить ДЗ");
     return null;
   }
 
-  // A "same" result only makes sense with a replacement text when one is given.
   if (result.same && !result.betterText) {
-    console.log("✅ [AI] ДЗ одинаковые, замена не требуется");
     return { same: true };
   }
-  console.log("✅ [AI] Результат сравнения:", result);
   return result;
 }
 
 export async function checkTextOnTopic(text: string): Promise<boolean> {
-  console.log("🛡️ [AI] Проверка текста на адекватность...");
-  // Цензура - даём 12 секунд (баланс скорость/надёжность)
   const verdict = await callOpenRouterJson(
     ON_TOPIC_SYSTEM_PROMPT,
     `Текст записи:\n${text}`,
     onTopicVerdictSchema,
-    12_000 // 12 секунд
+    30_000
   );
   if (!verdict) {
-    console.error("❌ [AI] Не удалось проверить текст - AI недоступен");
+    console.error("❌ [AI] Не удалось проверить текст");
     throw new BotError("AI_UNAVAILABLE");
   }
-  console.log("✅ [AI] Результат проверки:", verdict.onTopic ? "✅ Принят" : "❌ Отклонён");
   return verdict.onTopic;
 }
