@@ -1,46 +1,56 @@
 import { z } from "zod";
 import { BotError } from "@/lib/errors";
 import type { ComparisonResult } from "@/types";
+import {
+  AI_CONFIG,
+  COMPARE_SYSTEM_PROMPT,
+  ON_TOPIC_SYSTEM_PROMPT,
+  comparisonResultSchema,
+  onTopicVerdictSchema,
+} from "./ai.types";
 
 // compareHomework is optional: if OpenRouter is unavailable it returns null
 // ("verdict unknown") and the submission goes to pending moderation.
 // Censorship (checkTextOnTopic) is fail-closed: it never returns an unknown
 // verdict — it throws AI_UNAVAILABLE, so nothing is ever saved unchecked.
 
-const comparisonResultSchema = z.object({
-  same: z.boolean(),
-  betterText: z.string().optional().nullable(),
-});
+/**
+ * Парсит JSON ответ от AI, обрабатывая markdown обертки и типичные ошибки AI.
+ * @returns распарсенный объект или null при ошибке
+ */
+function parseAIJsonResponse(content: string): unknown | null {
+  // Извлекаем JSON из markdown если есть
+  let jsonText = content.trim();
+  const jsonMatch = jsonText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (jsonMatch) {
+    jsonText = jsonMatch[1];
+  }
 
-const onTopicVerdictSchema = z.object({
-  onTopic: z.boolean(),
-});
-
-const COMPARE_SYSTEM_PROMPT = `Ты помощник, который сравнивает формулировки домашнего задания школьников.
-Тебе дают два текста ДЗ по одному и тому же уроку. Определи, это одно и то же задание или разные.
-Если это одно и то же задание, но новая формулировка точнее или полнее — верни улучшенный текст.
-Если задания разные — same=false и betterText не нужен.
-
-ВАЖНО: Ответь СТРОГО в формате JSON. Примеры:
-{"same": true}
-{"same": true, "betterText": "улучшенный текст"}
-{"same": false}
-
-Ничего кроме JSON! Никаких пояснений, markdown, дополнительных полей!`;
-
-const ON_TOPIC_SYSTEM_PROMPT = `Ты фильтр записей школьного бота. Ученик хочет сохранить текст как домашнее задание или заметку.
-Определи, похож ли текст на осмысленную запись по делу: домашнее задание, напоминание о задании, примечание к уроку.
-Мусор — спам, реклама, мат, оскорбления, бессмысленный набор символов, случайные буквы или цифры.
-
-ВАЖНО: Ответь ТОЛЬКО чистым JSON без markdown, без форматирования, без пояснений:
-{"onTopic": boolean}`;
+  try {
+    return JSON.parse(jsonText);
+  } catch (parseError) {
+    // Пытаемся исправить типичные ошибки AI
+    const fixedJson = jsonText
+      .replace(/:\s*\{\s*"value":\s*(\w+)\s*\}/g, ': $1')
+      .replace(/,\s*\}/g, '}');
+    
+    try {
+      const parsed = JSON.parse(fixedJson);
+      console.log("✅ [AI] JSON исправлен автоматически");
+      return parsed;
+    } catch (retryError) {
+      console.error("❌ [AI] Ошибка парсинга JSON:", content.substring(0, 100));
+      return null;
+    }
+  }
+}
 
 /** One JSON-structured OpenRouter chat call; null on any failure. */
 async function callOpenRouterJson<T>(
   systemPrompt: string,
   userContent: string,
   schema: z.ZodType<T>,
-  timeoutMs: number = 20_000
+  timeoutMs: number = AI_CONFIG.DEFAULT_TIMEOUT_MS
 ): Promise<T | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -55,32 +65,22 @@ async function callOpenRouterJson<T>(
   }, timeoutMs);
 
   try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "openrouter/auto",
-          temperature: 0,
-          response_format: { type: "json_object" },
-          route: "fallback",
-          models: [
-            "nvidia/nemotron-3-ultra-550b-a55b:free",
-            "deepseek/deepseek-v4-flash-0731:free",
-            "qwen/qwen3.8-27b:free"
-          ],
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userContent },
-          ],
-        }),
-      }
-    );
+    const response = await fetch(AI_CONFIG.OPENROUTER_API_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...AI_CONFIG.MODEL_CONFIG,
+        models: AI_CONFIG.MODELS,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
     
     clearTimeout(timeout);
     
@@ -106,29 +106,9 @@ async function callOpenRouterJson<T>(
       return null;
     }
 
-    // Извлекаем JSON из markdown если есть
-    let jsonText = content.trim();
-    const jsonMatch = jsonText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[1];
-    }
-
-    let parsedJson;
-    try {
-      parsedJson = JSON.parse(jsonText);
-    } catch (parseError) {
-      // Try to fix common AI mistakes
-      const fixedJson = jsonText
-        .replace(/:\s*\{\s*"value":\s*(\w+)\s*\}/g, ': $1')
-        .replace(/,\s*\}/g, '}');
-      
-      try {
-        parsedJson = JSON.parse(fixedJson);
-        console.log("✅ [AI] JSON исправлен");
-      } catch (retryError) {
-        console.error("❌ [AI] Ошибка парсинга JSON:", content.substring(0, 100));
-        return null;
-      }
+    const parsedJson = parseAIJsonResponse(content);
+    if (!parsedJson) {
+      return null;
     }
 
     const parsed = schema.safeParse(parsedJson);
@@ -162,7 +142,7 @@ export async function compareHomework(
       COMPARE_SYSTEM_PROMPT,
       `Существующее ДЗ:\n${existing}\n\nНовое ДЗ:\n${incoming}`,
       comparisonResultSchema,
-      10_000
+      AI_CONFIG.COMPARE_TIMEOUT_MS
     );
     
     if (!result) {
@@ -170,18 +150,21 @@ export async function compareHomework(
       return null;
     }
 
-    if (result.same && !result.betterText) {
+    // Преобразуем null в undefined для соответствия типу ComparisonResult
+    const betterText = result.betterText ?? undefined;
+
+    if (result.same && !betterText) {
       console.log("✅ [COMPARE] ДЗ идентичны");
       return { same: true };
     }
     
-    if (result.same && result.betterText) {
+    if (result.same && betterText) {
       console.log("✨ [COMPARE] ДЗ идентичны, но есть улучшенная формулировка");
+      return { same: true, betterText };
     } else {
       console.log("❌ [COMPARE] ДЗ различаются");
+      return { same: false };
     }
-    
-    return result;
   } catch (error) {
     console.error("❌ [COMPARE] Неожиданная ошибка:", error);
     return null;
@@ -193,7 +176,7 @@ export async function checkTextOnTopic(text: string): Promise<boolean> {
     ON_TOPIC_SYSTEM_PROMPT,
     `Текст записи:\n${text}`,
     onTopicVerdictSchema,
-    30_000
+    AI_CONFIG.ON_TOPIC_TIMEOUT_MS
   );
   if (!verdict) {
     console.error("❌ [AI] Не удалось проверить текст");
