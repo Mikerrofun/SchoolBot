@@ -24,7 +24,9 @@ model Lesson {
   subject      String
   homework     Homework?
 
-  @@unique([date, lessonNumber])
+  // subject is part of the key so split subjects (e.g. two English groups
+  // — Веренич / не Веренич) can occupy the same slot on the same date.
+  @@unique([date, lessonNumber, subject])
   @@index([date])
 }
 

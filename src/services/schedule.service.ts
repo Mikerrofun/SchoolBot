@@ -34,7 +34,9 @@ async function ensureWeekScheduleExists(window: WeekWindow): Promise<void> {
     const subjects = SCHEDULE_TEMPLATE[day as keyof typeof SCHEDULE_TEMPLATE];
     for (let n = 0; n < subjects.length; n++) {
       const lesson = await prisma.lesson.upsert({
-        where: { date_lessonNumber: { date, lessonNumber: n + 1 } },
+        where: {
+          date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
+        },
         update: {},
         create: { date, day, lessonNumber: n + 1, subject: subjects[n] },
       });

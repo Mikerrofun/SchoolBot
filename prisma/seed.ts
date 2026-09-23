@@ -19,7 +19,9 @@ async function main() {
 
     for (let n = 0; n < subjects.length; n++) {
       await prisma.lesson.upsert({
-        where: { date_lessonNumber: { date, lessonNumber: n + 1 } },
+        where: {
+          date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
+        },
         update: { subject: subjects[n] },
         create: { date, day, lessonNumber: n + 1, subject: subjects[n] },
       });
