@@ -14,101 +14,123 @@
 upsert падал по unique violation. Информатику не трогали: группа там одна,
 ДЗ пишут редко.
 
+Заодно вскрылась вторая проблема: расписание показа собиралось из БД, а номера
+уроков в БД — это индексы массива шаблона. После добавления второго английского
+массивы выросли и все номера после сплита съехали (6/7 вместо 6, в четверг всё
+сдвинулось на +1). Расписание меняется раз в полгода — хранить и пересчитывать
+его в БД незачем.
+
 ## 2. Где/что уже было
 
-Задача была не писать новое, а использовать существующее: ленивое создание
-уроков из `SCHEDULE_TEMPLATE` (единый источник правды для seed и рантайма),
-upsert ДЗ по `lessonId`, рендер дня и пикер уроков, которые просто перебирают
-список уроков без какой-либо дедупликации по номеру.
+Ленивое создание уроков из `SCHEDULE_TEMPLATE` (единый источник для seed и
+рантайма), upsert ДЗ по `lessonId`, рендер дня и пикер уроков, которые просто
+перебирают список уроков без какой-либо дедупликации по номеру:
 
 ```ts
-// src/services/schedule.service.ts
+// src/services/schedule.service.ts (было)
 const lesson = await prisma.lesson.upsert({
   where: { ... },
   create: { date, day, lessonNumber: n + 1, subject: subjects[n] },
 });
 ```
 
+Показ расписания тоже ходил в БД: `showSchedule` → `getWeekLessons` →
+`ensureWeekScheduleExists` (создавала уроки недели) → `findMany` → рендер.
 Каждый урок уже имел свой `id`, и вся логика ДЗ (запись, модерация
 `pendingText`/`status`, AI-сравнение) работала через `lessonId`, а не через
 номер урока. Значит, если сделать две строки `Lesson` в одном слоте —
-остальная логика подхватит их сама.
+остальная логика ДЗ подхватит их сама.
 
 ## 3. Реализация
 
-Схема: уникальный ключ урока расширен предметом — теперь два урока с одинаковой
+**Статичный конфиг — новый единственный источник расписания.** Реальные номера
+уроков, английский — один слот. `src/lib/schedule-template.ts` удалён.
+
+```ts
+// src/config/schedule.ts
+export const STATIC_SCHEDULE: StaticSchedule = {
+  MONDAY: [
+    { lessonNumber: 1, subject: "Математика" },
+    // ...
+    { lessonNumber: 6, subject: "Английский язык" },
+  ],
+  // ...
+};
+
+// Сплит-предметы: для ДЗ разворачиваются в урок-на-группу в том же слоте.
+export const SPLIT_GROUPS: Record<string, string[]> = {
+  "Английский язык": ["Веренич", "не Веренич"],
+};
+
+export function lessonsForDay(day: DayKey): ScheduleSlot[] { /* ... */ }
+```
+
+`lessonsForDay` — то, что пишется в БД: «Английский язык» → два урока
+«Английский язык (Веренич)» и «Английский язык (не Веренич)» с **одинаковым**
+`lessonNumber`. Остальные предметы проходят как есть.
+
+**Схема:** уникальный ключ урока расширен предметом — два урока с одинаковой
 датой и номером разрешены, если у них разные названия.
 
 ```prisma
 // prisma/schema.prisma
-// subject is part of the key so split subjects (e.g. two English groups
-// — Веренич / не Веренич) can occupy the same slot on the same date.
 @@unique([date, lessonNumber, subject])
 ```
 
-Upsert-ключи обновлены в двух местах, где создаются уроки:
+**Создание уроков для ДЗ** (ленивое создание и seed) читает `lessonsForDay`:
 
 ```ts
-// src/services/schedule.service.ts
-where: {
-  date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
-},
+// src/services/schedule.service.ts и prisma/seed.ts
+for (const slot of lessonsForDay(day)) {
+  await prisma.lesson.upsert({
+    where: {
+      date_lessonNumber_subject: {
+        date, lessonNumber: slot.lessonNumber, subject: slot.subject,
+      },
+    },
+    create: { date, day, lessonNumber: slot.lessonNumber, subject: slot.subject },
+  });
+}
+```
+
+**Показ расписания — чистая статика, ноль запросов в БД:**
+
+```ts
+// src/bot/messages.ts
+export function scheduleWeekMessage(): string {
+  // weekDates(0) — даты текущей недели, предметы — из STATIC_SCHEDULE
+}
 ```
 
 ```ts
-// prisma/seed.ts
-where: {
-  date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
-},
+// src/bot/handlers/navigation.ts
+export async function showSchedule(ctx: MyContext): Promise<void> {
+  // ...
+  await ctx.reply(scheduleWeekMessage(), { reply_markup: mainMenuReplyKeyboard() });
+}
 ```
 
-Шаблон: английский разбит на два предмета в одном слоте (пн и чт). Информатика
-осталась одной строкой.
-
-```ts
-// src/lib/schedule-template.ts
-// Split subjects: two groups in the same slot, each with its own homework.
-"Английский язык (Веренич)",
-"Английский язык (не Веренич)",
-```
-
-Миграция с backfill — существующие недели не теряют ДЗ:
+**Миграция** — только смена констрейнта, без backfill: БД пересеивается заново
+из конфига.
 
 ```sql
 -- prisma/migrations/20260923000000_split_subject_groups/migration.sql
 ALTER TABLE "Lesson" DROP CONSTRAINT "Lesson_date_lessonNumber_key";
 ALTER TABLE "Lesson" ADD CONSTRAINT "Lesson_date_lessonNumber_subject_key" UNIQUE ("date", "lessonNumber", "subject");
-
-UPDATE "Lesson" SET "subject" = 'Английский язык (Веренич)' WHERE "subject" = 'Английский язык';
-
-INSERT INTO "Lesson" ("date", "day", "lessonNumber", "subject")
-SELECT "date", "day", "lessonNumber", 'Английский язык (не Веренич)'
-FROM "Lesson" WHERE "subject" = 'Английский язык (Веренич)';
-
-INSERT INTO "Homework" ("lessonId", "text", "pendingText", "pendingCreatedBy", "status", "createdBy")
-SELECT twin."id", h."text", h."pendingText", h."pendingCreatedBy", h."status", h."createdBy"
-FROM "Lesson" orig
-JOIN "Homework" h ON h."lessonId" = orig."id"
-JOIN "Lesson" twin
-  ON twin."date" = orig."date"
- AND twin."lessonNumber" = orig."lessonNumber"
- AND twin."subject" = 'Английский язык (не Веренич)'
-WHERE orig."subject" = 'Английский язык (Веренич)';
 ```
 
-Не тронуто: `homework.service.ts` (запись, модерация, AI-сравнение),
-`messages.ts` (рендер дня и недели), `navigation.ts` (пикер уроков),
-клавиатуры, типы. Новый код приложения не писался — только схема, два
-upsert-ключа, шаблон и SQL миграции.
+Не тронуто: `homework.service.ts` (запись, модерация, AI-сравнение), рендер
+дня в `messages.ts`, пикер уроков в `navigation.ts`, клавиатуры.
 
 ## 4. UI (если применимо)
 
-UI-код не менялся — новые кнопки и строки появляются сами из данных:
-
-- пикер уроков при записи ДЗ: две отдельные кнопки
-  «6. Английский язык (Веренич)» и «6. Английский язык (не Веренич)»;
-- сообщение дня: два блока ДЗ с пометками групп;
-- вид недели: две строки с номером 6 (косметика, номер у обоих честный).
+- **Расписание:** одна строка «6. Английский язык» — группы в расписании не
+  нужны, номер честный. Рендерится из конфига мгновенно, без БД.
+- **Пикер уроков при записи ДЗ:** две отдельные кнопки
+  «6. Английский язык (Веренич)» и «6. Английский язык (не Веренич)» — выбор
+  группы встроен в кнопки, отдельный подшаг не нужен.
+- **Сообщение дня:** два блока ДЗ с пометками групп, без номеров уроков —
+  как и было.
 
 `shortSubject` пропускает неизвестные названия как есть
 (`SUBJECT_SHORT_NAMES[subject] ?? subject`), так что длинные имена групп
@@ -117,9 +139,12 @@ UI-код не менялся — новые кнопки и строки поя
 ## 5. Поток данных
 
 ```
-ensureWeekScheduleExists / seed
-  ↓ SCHEDULE_TEMPLATE → upsert по (date, lessonNumber, subject)
-  ↓ два урока «Английский» в слоте 6, у каждого свой id
+Показ расписания (статика)
+  STATIC_SCHEDULE → scheduleWeekMessage() → текст, ноль запросов в БД
+
+Создание уроков для ДЗ (лениво / seed)
+  lessonsForDay(day) → сплит «Английский язык» → 2 урока, lessonNumber 6 и 6
+  ↓ upsert по (date, lessonNumber, subject), у каждого урока свой id
 Запись ДЗ
   ↓ пикер уроков дня → выбор конкретной группы → upsert Homework по lessonId
 Выдача ДЗ
@@ -131,21 +156,26 @@ ensureWeekScheduleExists / seed
 
 1. **Два урока вместо поля `group` на Lesson.** Нулевые изменения в логике
    ДЗ: каждая группа — обычный независимый урок, вся существующая цепочка
-   (запись, модерация, AI) работает как есть. Поле `group` дало бы то же
-   самое, но потребовало бы правок в пикере и рендере.
+   (запись, модерация, AI) работает как есть.
 2. **Не `text2` на Homework.** У ДЗ есть не только `text`, но и `pendingText`,
    `pendingCreatedBy`, `status` — их пришлось бы дублировать, а в сервисе
    появился бы хардкод «если английский — пишем в text2». Самый хрупкий вариант.
-3. **Backfill в SQL миграции, а не отдельным скриптом.** Применяется
-   атомарно вместе со сменой констрейнта одним `prisma migrate deploy`,
-   ничего запускать вручную помимо миграций не нужно.
-4. **Копирование ДЗ на близнецов в миграции.** Ученики не теряют уже
-   введённое ДЗ (включая ожидающее модерации) после деплоя.
+3. **Расписание статикой, а не из БД.** Расписание меняется раз в полгода;
+   при смене — правка конфига и пересид. Из БД брали только даты текущей
+   недели, а номера в БД были индексами массива и съезжали при сплите.
+   Статика убрала и сдвиг номеров, и лишний слой `ensureWeekScheduleExists`
+   на пути показа.
+4. **Без backfill в миграции.** Данных в БД нет — проще пересидеть заново из
+   конфига, чем поддерживать SQL переноса. Миграция осталась только для
+   смены констрейнта.
+5. **Без отдельного подшага выбора группы.** Группа выбирается кнопкой в
+   пикере уроков — на один шаг меньше, и не нужен отдельный стейт в сессии.
 
 ## Преимущества
 
 - ✅ Два ДЗ на английский работают без единой правки в логике ДЗ
 - ✅ Модерация и AI-сравнение не затронуты — работают по lessonId каждой группы
-- ✅ Существующие недели мигрируют с сохранением введённого ДЗ
+- ✅ Расписание показа — чистая статика: без БД, без сдвига номеров
 - ✅ Информатика не разделена — одна группа, лишних кнопок нет
-- ✅ Масштабируется: следующий сплит-предмет — одна строка в шаблоне
+- ✅ Смена расписания раз в полгода = правка одного конфига + пересид
+- ✅ Масштабируется: следующий сплит-предмет — одна строка в `SPLIT_GROUPS`

@@ -1,8 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import {
-  SCHEDULE_TEMPLATE,
-  UPK_HOMEWORK_TEXT,
-} from "../src/lib/schedule-template";
+import { UPK_HOMEWORK_TEXT, lessonsForDay } from "../src/config/schedule";
 import { addDays, currentWeekStart, dayKeyFromDate } from "../src/lib/weeks";
 
 const prisma = new PrismaClient();
@@ -15,15 +12,23 @@ async function main() {
   for (let i = 0; i < 5; i++) {
     const date = addDays(monday, i);
     const day = dayKeyFromDate(date);
-    const subjects = SCHEDULE_TEMPLATE[day as keyof typeof SCHEDULE_TEMPLATE];
 
-    for (let n = 0; n < subjects.length; n++) {
+    for (const slot of lessonsForDay(day)) {
       await prisma.lesson.upsert({
         where: {
-          date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
+          date_lessonNumber_subject: {
+            date,
+            lessonNumber: slot.lessonNumber,
+            subject: slot.subject,
+          },
         },
-        update: { subject: subjects[n] },
-        create: { date, day, lessonNumber: n + 1, subject: subjects[n] },
+        update: { subject: slot.subject },
+        create: {
+          date,
+          day,
+          lessonNumber: slot.lessonNumber,
+          subject: slot.subject,
+        },
       });
     }
   }

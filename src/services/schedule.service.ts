@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { SCHEDULE_TEMPLATE, UPK_HOMEWORK_TEXT } from "@/lib/schedule-template";
+import { UPK_HOMEWORK_TEXT, lessonsForDay } from "@/config/schedule";
 import { addDays, dateKey, dayKeyFromDate, startOfWeek, weekDates } from "@/lib/weeks";
 import type {
   DayKey,
@@ -11,8 +11,8 @@ import type {
 
 /**
  * Lazy creation: if the requested week has no lessons yet, create them from
- * SCHEDULE_TEMPLATE. Idempotent — safe to call on every request. The УПК
- * lesson on Wednesday also gets its standing joke homework.
+ * the static schedule config. Idempotent — safe to call on every request. The
+ * УПК lesson on Wednesday also gets its standing joke homework.
  */
 async function ensureWeekScheduleExists(window: WeekWindow): Promise<void> {
   const monday = startOfWeek(window.start);
@@ -31,16 +31,24 @@ async function ensureWeekScheduleExists(window: WeekWindow): Promise<void> {
     if (existingDates.has(dateKey(date))) continue;
 
     const day = dayKeyFromDate(date);
-    const subjects = SCHEDULE_TEMPLATE[day as keyof typeof SCHEDULE_TEMPLATE];
-    for (let n = 0; n < subjects.length; n++) {
+    for (const slot of lessonsForDay(day)) {
       const lesson = await prisma.lesson.upsert({
         where: {
-          date_lessonNumber_subject: { date, lessonNumber: n + 1, subject: subjects[n] },
+          date_lessonNumber_subject: {
+            date,
+            lessonNumber: slot.lessonNumber,
+            subject: slot.subject,
+          },
         },
         update: {},
-        create: { date, day, lessonNumber: n + 1, subject: subjects[n] },
+        create: {
+          date,
+          day,
+          lessonNumber: slot.lessonNumber,
+          subject: slot.subject,
+        },
       });
-      if (subjects[n].includes("УПК")) upkLessonId = lesson.id;
+      if (slot.subject.includes("УПК")) upkLessonId = lesson.id;
     }
   }
 
