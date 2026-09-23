@@ -20,10 +20,16 @@ export type WeekWindow = {
   offset: WeekOffset;
 };
 
-/** Week schedule template: subjects per weekday, in lesson order. */
-export type ScheduleTemplate = Record<
+/** One static schedule slot: the real lesson number plus the subject. */
+export type ScheduleSlot = {
+  lessonNumber: number;
+  subject: string;
+};
+
+/** Static week schedule: real lesson numbers per weekday. */
+export type StaticSchedule = Record<
   Exclude<DayKey, "SATURDAY" | "SUNDAY">,
-  string[]
+  ScheduleSlot[]
 >;
 
 export type Lesson = {

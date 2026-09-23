@@ -7,8 +7,10 @@ import {
   WEEK_LABELS,
   dayKeyFromDate,
   formatDate,
+  weekDates,
 } from "@/lib/weeks";
 import { shortSubject } from "@/lib/subjects";
+import { STATIC_SCHEDULE } from "@/config/schedule";
 import type {
   AdditionalReviewNotification,
   DayHomeworkRow,
@@ -16,7 +18,6 @@ import type {
   HomeworkSaveAction,
   NewHomeworkNotification,
   UserDisplayInfo,
-  WeekDayLessons,
   WeekOffset,
 } from "@/types";
 
@@ -85,21 +86,27 @@ export function dayTitle(date: Date): string {
   return DAY_LABELS[dayKeyFromDate(date)];
 }
 
-/** The whole week in one message: "День (дата)" + numbered lessons, no homework. */
-export function scheduleWeekMessage(days: WeekDayLessons[]): string {
+/**
+ * The whole week in one message: "День (дата)" + numbered lessons, no homework.
+ * Rendered purely from the static schedule config — no database involved.
+ */
+export function scheduleWeekMessage(): string {
   const lines: string[] = [SCHEDULE_TITLE, ""];
   let total = 0;
-  for (const { date, lessons } of days) {
+  for (const date of weekDates(0)) {
     lines.push(`${dayTitle(date)} (${formatDate(date)})`);
-    if (lessons.length === 0) {
+    const slots =
+      STATIC_SCHEDULE[dayKeyFromDate(date) as keyof typeof STATIC_SCHEDULE] ??
+      [];
+    if (slots.length === 0) {
       lines.push(EMPTY_VALUE_TEXT);
     } else {
-      for (const lesson of lessons) {
-        lines.push(`${lesson.lessonNumber}. ${shortSubject(lesson.subject)}`);
+      for (const slot of slots) {
+        lines.push(`${slot.lessonNumber}. ${shortSubject(slot.subject)}`);
       }
     }
     lines.push("");
-    total += lessons.length;
+    total += slots.length;
   }
   if (total === 0) return SCHEDULE_EMPTY_TEXT;
   return lines.join("\n").trimEnd();

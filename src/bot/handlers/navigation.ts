@@ -16,7 +16,7 @@ import {
 import { shortSubject } from "@/lib/subjects";
 import { getAdditionalForWeek } from "@/services/additional.service";
 import { getDayHomework } from "@/services/homework.service";
-import { getLessonsInRange, getWeekLessons } from "@/services/schedule.service";
+import { getLessonsInRange } from "@/services/schedule.service";
 import type {
   DayKey,
   Flow,
@@ -96,16 +96,16 @@ export async function startFlow(ctx: MyContext, flow: Flow): Promise<void> {
 }
 
 /**
- * The schedule template is the same every week, so there is nothing to pick:
- * one message with the current week, then back to the main menu keyboard.
+ * The schedule is static (same every week until re-seeded), so there is
+ * nothing to pick and nothing to read from the database: one message with the
+ * current week dates, then back to the main menu keyboard.
  */
 export async function showSchedule(ctx: MyContext): Promise<void> {
   ctx.session.pending = undefined;
   ctx.session.flow = undefined;
   ctx.session.weekOffset = undefined;
   ctx.session.lessonChoices = undefined;
-  const days = await getWeekLessons(getWeekWindow(0));
-  await ctx.reply(scheduleWeekMessage(days), {
+  await ctx.reply(scheduleWeekMessage(), {
     reply_markup: mainMenuReplyKeyboard(),
   });
 }
