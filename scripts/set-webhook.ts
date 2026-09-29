@@ -31,7 +31,9 @@ async function main() {
       body: JSON.stringify({
         url: webhookUrl,
         secret_token: secret,
-        allowed_updates: ["message", "callback_query"],
+        // Должно совпадать с allowed_updates в bot.api.config.use (src/bot/bot.ts),
+        // иначе в webhook-режиме бот не получит часть обновлений.
+        allowed_updates: ["message", "callback_query", "edited_message"],
       }),
     }
   );
