@@ -27,7 +27,7 @@ export function getBot(): Bot<MyContext> {
         method,
         {
           ...payload,
-          allowed_updates: ["message", "callback_query", "edited_message"],
+          allowed_updates: ["message", "callback_query"],
         },
         signal,
       );
