@@ -1,17 +1,15 @@
-#!/usr/bin/env tsx
 /**
- * Локальный запуск бота через long polling (для разработки)
- * Использование: npm run bot:dev или tsx scripts/dev-polling.ts
+ * Локальный запуск бота через long polling на Grammy Runner (для разработки)
  */
 
 import { getBot } from "../src/bot/bot";
+import { gracefulShutdown, startRunner } from "../src/bot/runner";
 
 async function main() {
-  console.log("🤖 Starting bot in long polling mode...");
-  
+  console.log("🤖 Starting bot in long polling mode (Grammy Runner)...");
+
   const bot = getBot();
 
-  // Удаляем webhook если был установлен
   try {
     await bot.api.deleteWebhook();
     console.log("✅ Webhook deleted (switching to polling)");
@@ -19,18 +17,20 @@ async function main() {
     console.log("⚠️  Could not delete webhook:", error);
   }
 
-  // Информация о боте
-  const me = await bot.api.getMe();
+  await startRunner();
+
+  const me = bot.botInfo;
+  if (!me) throw new Error("bot.init() did not set botInfo");
   console.log(`✅ Bot started: @${me.username}`);
   console.log(`📝 Bot name: ${me.first_name}`);
   console.log(`🔑 Bot ID: ${me.id}`);
-  console.log("\n🚀 Bot is running in polling mode. Press Ctrl+C to stop.\n");
+  console.log("\n🚀 Bot is running via Grammy Runner. Press Ctrl+C to stop.\n");
 
-  // Запуск long polling
-  await bot.start({
-    onStart: (botInfo) => {
-      console.log(`👂 Listening for updates...`);
-    },
+  process.once("SIGINT", () => {
+    void gracefulShutdown("SIGINT").then(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    void gracefulShutdown("SIGTERM").then(() => process.exit(0));
   });
 }
 

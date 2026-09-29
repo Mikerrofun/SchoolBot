@@ -34,6 +34,7 @@
     ]
   },
   "dependencies": {
+    "@grammyjs/runner": "^2.0.3",
     "@prisma/client": "^6.16.2",
     "dotenv": "^18.0.0",
     "grammy": "^1.36.3",

@@ -7,7 +7,7 @@ import type {
 } from "@/types";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 10; // Vercel free tier limit
+export const maxDuration = 10; 
 
 function errorResponse(code: ErrorCode, status = 200): Response {
   const body: WebhookErrorPayload = {
@@ -39,8 +39,6 @@ export async function POST(req: Request) {
     const body: WebhookSuccessPayload = { ok: true };
     return Response.json(body);
   } catch (error) {
-    // Always HTTP 200: Telegram must not retry and duplicate the update.
-    // The structured body carries the registry code + user-friendly message.
     const botError = toBotError(error);
     console.error(`[webhook] error ${botError.code}:`, error);
     return errorResponse(botError.code);
