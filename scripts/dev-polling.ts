@@ -1,7 +1,5 @@
-#!/usr/bin/env tsx
 /**
  * Локальный запуск бота через long polling на Grammy Runner (для разработки)
- * Использование: npm run bot:dev или tsx scripts/dev-polling.ts
  */
 
 import { getBot } from "../src/bot/bot";
@@ -12,7 +10,6 @@ async function main() {
 
   const bot = getBot();
 
-  // Удаляем webhook если был установлен
   try {
     await bot.api.deleteWebhook();
     console.log("✅ Webhook deleted (switching to polling)");
@@ -20,7 +17,6 @@ async function main() {
     console.log("⚠️  Could not delete webhook:", error);
   }
 
-  // startRunner() сам вызывает bot.init() перед запуском
   await startRunner();
 
   const me = bot.botInfo;
@@ -30,7 +26,6 @@ async function main() {
   console.log(`🔑 Bot ID: ${me.id}`);
   console.log("\n🚀 Bot is running via Grammy Runner. Press Ctrl+C to stop.\n");
 
-  // Graceful shutdown: останавливаем runner и дожидаемся обработки updates
   process.once("SIGINT", () => {
     void gracefulShutdown("SIGINT").then(() => process.exit(0));
   });

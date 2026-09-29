@@ -6,20 +6,12 @@ import { run, type RunnerHandle } from "@grammyjs/runner";
 
 import { initBot } from "./bot";
 
-/**
- * Храним runner instance, чтобы graceful shutdown мог его остановить
- * из любого места (обработчики сигналов, тесты, внешние скрипты).
- */
 let runnerInstance: RunnerHandle | null = null;
 
 export function getRunner(): RunnerHandle | null {
   return runnerInstance;
 }
 
-/**
- * Инициализирует бота (bot.init) и запускает runner.
- * Идемпотентна: повторный вызов возвращает уже запущенный runner.
- */
 export async function startRunner(): Promise<RunnerHandle> {
   if (runnerInstance) return runnerInstance;
 
@@ -32,11 +24,6 @@ export async function startRunner(): Promise<RunnerHandle> {
   return runner;
 }
 
-/**
- * Плавная остановка: runner перестаёт забирать новые updates
- * (прерывая pending getUpdates через AbortSignal) и дожидается
- * завершения всех уже начатых обработчиков.
- */
 export async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`🛑 [SHUTDOWN] Получен сигнал ${signal}, останавливаем runner...`);
 
