@@ -18,6 +18,23 @@ export function getBot(): Bot<MyContext> {
 
   const bot = new Bot<MyContext>(token);
 
+  // Настраиваем типы updates для получения: ограничиваем getUpdates только
+  // нужными типами, чтобы Telegram не присылал лишнее. Сигнал пробрасываем
+  // дальше — runner использует его для прерывания pending getUpdates.
+  bot.api.config.use((prev, method, payload, signal) => {
+    if (method === "getUpdates") {
+      return prev(
+        method,
+        {
+          ...payload,
+          allowed_updates: ["message", "callback_query", "edited_message"],
+        },
+        signal,
+      );
+    }
+    return prev(method, payload, signal);
+  });
+
   bot.use(session({ initial: (): SessionData => ({}) }));
 
   // The reply-keyboard text router runs first: navigation presses cancel any
