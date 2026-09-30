@@ -18,9 +18,6 @@ export function getBot(): Bot<MyContext> {
 
   const bot = new Bot<MyContext>(token);
 
-  // Настраиваем типы updates для получения: ограничиваем getUpdates только
-  // нужными типами, чтобы Telegram не присылал лишнее. Сигнал пробрасываем
-  // дальше — runner использует его для прерывания pending getUpdates.
   bot.api.config.use((prev, method, payload, signal) => {
     if (method === "getUpdates") {
       return prev(
@@ -37,8 +34,8 @@ export function getBot(): Bot<MyContext> {
 
   bot.use(session({ initial: (): SessionData => ({}) }));
 
-  // The reply-keyboard text router runs first: navigation presses cancel any
-  // pending free-text input before the flow handlers see the message.
+  // Первым срабатывает маршрутизатор текста с клавиатуры ответов: нажатия, связанные с навигацией,
+  // отменяют любой ожидающий ввода произвольный текст до того, как сообщение попадет к обработчикам сценария.
   console.log("🔧 [INIT] Регистрация handlers...");
   registerStartHandler(bot);
   registerNavigationHandlers(bot);
@@ -74,8 +71,6 @@ export async function initBot(): Promise<Bot<MyContext>> {
 
   if (!botInitPromise) {
     botInitPromise = bot.init().catch((error) => {
-      // Don't cache the failure: the next update must be able to retry init
-      // (e.g. a transient network error right after a cold start).
       botInitPromise = null;
       throw error;
     });
