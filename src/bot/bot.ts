@@ -1,6 +1,9 @@
 import { Bot, session } from "grammy";
 import { toBotError } from "@/lib/errors";
 import type { MyContext, SessionData } from "@/types";
+import { staleUpdates } from "./middleware/staleUpdates";
+import { updateIdDedup } from "./middleware/updateIdDedup";
+import { inFlightGuard } from "./middleware/inFlightGuard";
 import { registerAdminHandlers } from "./handlers/admin";
 import { registerAdditionalHandlers } from "./handlers/additional";
 import { registerHomeworkHandlers } from "./handlers/homework";
@@ -32,6 +35,10 @@ export function getBot(): Bot<MyContext> {
     return prev(method, payload, signal);
   });
 
+  // Middleware защиты: stale → update_id dedup → in-flight guard → session → handlers
+  bot.use(staleUpdates);
+  bot.use(updateIdDedup);
+  bot.use(inFlightGuard);
   bot.use(session({ initial: (): SessionData => ({}) }));
 
   // Первым срабатывает маршрутизатор текста с клавиатуры ответов: нажатия, связанные с навигацией,

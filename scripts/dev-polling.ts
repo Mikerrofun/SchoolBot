@@ -11,8 +11,8 @@ async function main() {
   const bot = getBot();
 
   try {
-    await bot.api.deleteWebhook();
-    console.log("✅ Webhook deleted (switching to polling)");
+    await bot.api.deleteWebhook({ drop_pending_updates: true });
+    console.log("✅ Webhook deleted + pending updates dropped (switching to polling)");
   } catch (error) {
     console.log("⚠️  Could not delete webhook:", error);
   }
