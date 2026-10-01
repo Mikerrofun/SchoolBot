@@ -16,10 +16,10 @@ export async function startRunner(): Promise<RunnerHandle> {
   if (runnerInstance) return runnerInstance;
 
   const bot = await initBot();
-  const runner = run(bot);
+  const runner = run(bot, { sink: { concurrency: 20 } });
 
   runnerInstance = runner;
-  console.log("🏃 [RUNNER] Grammy Runner запущен");
+  console.log("🏃 [RUNNER] Grammy Runner запущен (concurrency: 20)");
 
   return runner;
 }

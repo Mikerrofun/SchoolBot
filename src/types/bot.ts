@@ -3,6 +3,8 @@
 import type { Context, SessionFlavor } from "grammy";
 import type { WeekOffset } from "./schedule";
 
+export type * from "./middleware";
+
 /** Navigation flows behind the reply-keyboard buttons. */
 export type Flow = "hwv" | "hwa" | "adv" | "ada";
 
